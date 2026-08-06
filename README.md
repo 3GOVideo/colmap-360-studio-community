@@ -162,4 +162,7 @@ See the [COLMAP 360° reconstruction documentation](https://colmap.github.io/rig
 
 ## License
 
-BSD 3-Clause. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+Original code in this repository is released under the [MIT License](LICENSE).
+The COLMAP-derived panorama implementation remains subject to COLMAP's BSD
+3-Clause License; see [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) and
+[NOTICE](NOTICE).

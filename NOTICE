@@ -1,6 +1,8 @@
 This project includes panorama_sfm_4_1_1.py from the COLMAP 4.1.1 examples.
 COLMAP is distributed under the BSD 3-Clause License.
+The repository's original code is distributed under the MIT License.
 
 Upstream project: https://github.com/colmap/colmap
 Source file: https://github.com/colmap/colmap/blob/4.1.1/python/examples/panorama_sfm.py
 Documentation: https://colmap.github.io/rigs.html#reconstruction-from-360-spherical-images
+Full third-party license text: THIRD_PARTY_LICENSES.md
