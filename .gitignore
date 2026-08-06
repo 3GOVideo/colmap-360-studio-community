@@ -1,0 +1,13 @@
+.DS_Store
+.venv/
+__pycache__/
+*.py[cod]
+360-images/
+360-reconstruction/
+database.db
+*.log
+*.ply
+*.spz
+*.ssproj
+*.bin
+*.db

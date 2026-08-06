@@ -1,0 +1,6 @@
+pycolmap==4.1.1
+numpy>=2.0
+pillow>=11.0
+opencv-python-headless>=4.10
+scipy>=1.14
+tqdm>=4.66
