@@ -56,6 +56,79 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
+## Interactive assistant for a 360° video
+
+On macOS or Ubuntu/Debian, `run_360_video.sh` can prepare the computer and run
+the complete workflow. Run it **from the folder containing the MP4 or MOV**:
+
+```bash
+cd "/path/to/folder-containing-the-video"
+"/path/to/colmap-360-rig-pipeline/run_360_video.sh"
+```
+
+The assistant installs missing Python, FFmpeg, COLMAP, and Python packages;
+detects the video; asks whether to extract 1, 2, or 5 frames per second; checks
+the equirectangular 2:1 ratio; and asks whether to start reconstruction with the
+12-camera overlapping rig. It never overwrites an existing frames or
+reconstruction folder.
+
+### Terminal explained for beginners (macOS and Linux)
+
+Suppose the video folder and the downloaded tool are next to each other:
+
+```text
+colmap/
+├── 360-sculpture/
+│   └── my-video.mp4
+└── colmap-360-rig-pipeline/
+    └── run_360_video.sh
+```
+
+Open Terminal, paste the following commands one line at a time, and press
+Enter after each line:
+
+```bash
+cd "/Users/your-name/Videos/colmap/360-sculpture"
+"../colmap-360-rig-pipeline/run_360_video.sh"
+```
+
+- `cd` means **change directory**. It places Terminal inside the video folder.
+- Quotes keep paths containing spaces together.
+- `..` means **the parent folder**. From there, the second command enters the
+  neighboring tool folder and runs `run_360_video.sh`.
+- The script remains in its own folder. The current video folder is used for
+  finding the MP4/MOV and saving the frames and reconstruction.
+
+### Windows PowerShell (using WSL)
+
+The interactive assistant is a Bash script, so Windows runs it through the
+Windows Subsystem for Linux (WSL). Install WSL once by opening PowerShell as
+Administrator and running:
+
+```powershell
+wsl --install
+```
+
+Restart Windows if requested. Then open PowerShell, enter WSL, move to the
+folder containing the video, and run the tool:
+
+```powershell
+wsl
+cd "/mnt/c/Users/your-name/Videos/colmap/360-sculpture"
+"../colmap-360-rig-pipeline/run_360_video.sh"
+```
+
+In WSL, the Windows `C:\` drive appears as `/mnt/c/`. Replace `your-name` and
+the example folders with the actual locations on the computer. The first run
+may request the Windows/Linux administrator password while dependencies are
+installed.
+
+To extract frames without starting COLMAP:
+
+```bash
+"/path/to/colmap-360-rig-pipeline/run_360_video.sh" --frames-only
+```
+
 ## Prepare images
 
 Either create a `360-images` folder beside the scripts or pass any image folder
@@ -222,6 +295,102 @@ python -c "import pycolmap, cv2, PIL, scipy, tqdm; print('OK', pycolmap.__versio
 ```
 
 La salida esperada debe incluir `OK 4.1.1`.
+
+### Asistente interactivo para un video 360°
+
+En macOS o Ubuntu/Debian puede usar `run_360_video.sh` para preparar el equipo
+y ejecutar todo el proceso. Abra Terminal y sitúese **en la carpeta donde está
+el archivo MP4 o MOV**, no en la carpeta del repositorio:
+
+```bash
+cd "/ruta/a/la-carpeta-que-contiene-el-video"
+"/ruta/a/colmap-360-rig-pipeline/run_360_video.sh"
+```
+
+El asistente realiza las siguientes tareas:
+
+1. Comprueba e instala, si hace falta, Python, FFmpeg, COLMAP y las dependencias
+   de Python.
+2. Busca archivos `.mp4` o `.mov` en la carpeta actual y permite seleccionar uno
+   si encuentra varios.
+3. Comprueba que el video tenga proporción equirectangular 2:1.
+4. Pregunta si desea extraer 1, 2 o 5 fotogramas por segundo. Para una primera
+   prueba se recomiendan 2 FPS.
+5. Guarda los panoramas sin sobrescribir carpetas existentes.
+6. Pregunta si desea iniciar COLMAP con el rig superpuesto de 12 cámaras
+   virtuales, valida primero el dataset y solicita una confirmación final.
+7. Al terminar, indica la carpeta `brush-dataset` que debe abrirse en Brush.
+
+#### Explicación para principiantes: `cd` y el archivo `.sh`
+
+Supongamos que la carpeta del video y la herramienta descargada están una al
+lado de la otra:
+
+```text
+colmap/
+├── 360-escultura/
+│   └── mi-video.mp4
+└── colmap-360-rig-pipeline/
+    └── run_360_video.sh
+```
+
+Abra Terminal, copie estos comandos uno por uno y presione Enter después de
+cada línea:
+
+```bash
+cd "/Users/su-nombre/Videos/colmap/360-escultura"
+"../colmap-360-rig-pipeline/run_360_video.sh"
+```
+
+- `cd` significa **cambiar de carpeta**. Deja Terminal ubicada dentro de la
+  carpeta que contiene el video.
+- Las comillas hacen que una ruta con espacios se interprete completa.
+- `..` significa **subir a la carpeta anterior**. Desde allí, el segundo
+  comando entra en la carpeta vecina de la herramienta y ejecuta
+  `run_360_video.sh`.
+- No se entra dentro del archivo `.sh`: ese archivo es un programa que se
+  ejecuta. El programa permanece en su propia carpeta, pero busca el video y
+  guarda los resultados en la carpeta donde se ejecutó el primer `cd`.
+
+#### Windows PowerShell mediante WSL
+
+El asistente interactivo es un script Bash. Para ejecutarlo en Windows se usa
+el Subsistema de Windows para Linux (WSL). Abra PowerShell como administrador,
+ejecute este comando una sola vez y reinicie Windows si se lo solicita:
+
+```powershell
+wsl --install
+```
+
+Después, abra PowerShell normalmente, entre en WSL, cambie a la carpeta del
+video y ejecute la herramienta:
+
+```powershell
+wsl
+cd "/mnt/c/Users/su-nombre/Videos/colmap/360-escultura"
+"../colmap-360-rig-pipeline/run_360_video.sh"
+```
+
+Dentro de WSL, el disco `C:\` de Windows aparece como `/mnt/c/`. Sustituya
+`su-nombre` y las carpetas del ejemplo por las rutas reales. En la primera
+ejecución, el sistema puede solicitar la contraseña de administrador para
+instalar las dependencias.
+
+Para extraer únicamente los frames y no iniciar COLMAP:
+
+```bash
+"/ruta/a/colmap-360-rig-pipeline/run_360_video.sh" --frames-only
+```
+
+Para ejecutar el asistente sin intentar instalar paquetes nuevos:
+
+```bash
+"/ruta/a/colmap-360-rig-pipeline/run_360_video.sh" --skip-install
+```
+
+El script nunca reemplaza automáticamente una carpeta de frames ni una
+reconstrucción existente; si encuentra una, crea una ruta nueva con fecha y
+hora.
 
 ### Preparar las imágenes
 
