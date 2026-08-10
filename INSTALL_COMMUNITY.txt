@@ -1,0 +1,63 @@
+COLMAP 360 Studio Community
+===========================
+
+ESPAÑOL
+-------
+
+La aplicación incluye Python, PyCOLMAP, OpenCV, FFmpeg, Pillow, SciPy y los
+componentes necesarios para preparar el dataset.
+
+Brush no está incluido porque es un proyecto independiente. Se necesita para
+entrenar el Gaussian Splat después de crear el dataset. La sección
+"Configuración del sistema" de la aplicación contiene un enlace directo a la
+página oficial de Brush:
+
+https://github.com/ArthurBrussee/brush/releases/latest
+
+Flujo básico:
+
+1. Seleccione un video MOV o MP4.
+2. Indique si es 360° equirectangular o plano/convencional.
+3. Escoja 1, 2, 5 o 10 fotogramas por segundo.
+4. Seleccione la carpeta donde se guardarán los resultados.
+5. Pulse "Crear dataset" y consulte el registro del proceso.
+6. Instale Brush y abra la carpeta brush-dataset para entrenar.
+
+Esta es una herramienta comunitaria no oficial. No está afiliada con COLMAP ni
+con los autores de Brush.
+
+La edición comunitaria todavía no utiliza certificados comerciales. En macOS,
+arrastre la aplicación a Aplicaciones y, si Gatekeeper la bloquea, haga clic
+derecho sobre ella y seleccione "Abrir". Windows SmartScreen también puede
+mostrar un aviso de editor desconocido hasta que exista un certificado de firma.
+
+
+ENGLISH
+-------
+
+The application includes Python, PyCOLMAP, OpenCV, FFmpeg, Pillow, SciPy, and
+the components required to prepare the dataset.
+
+Brush is not bundled because it is an independent project. It is required to
+train the Gaussian Splat after the dataset has been created. The app's
+"System configuration" section contains a direct link to the official Brush
+download page:
+
+https://github.com/ArthurBrussee/brush/releases/latest
+
+Basic workflow:
+
+1. Select a MOV or MP4 video.
+2. Choose 360° equirectangular or flat/conventional video.
+3. Select 1, 2, 5, or 10 frames per second.
+4. Select the destination folder.
+5. Click "Create dataset" and follow the process log.
+6. Install Brush and open the brush-dataset folder to train.
+
+This is an unofficial community tool. It is not affiliated with COLMAP or the
+authors of Brush.
+
+The community edition does not yet use commercial signing certificates. On
+macOS, drag the app to Applications and, if Gatekeeper blocks it, right-click
+the app and choose "Open". Windows SmartScreen may also show an unknown
+publisher warning until a signing certificate is added.

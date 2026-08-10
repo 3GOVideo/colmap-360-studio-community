@@ -1,5 +1,7 @@
 # COLMAP 360 Rig Pipeline
 
+![COLMAP 360 Studio](thumbnail-macos-app.png)
+
 Turn equirectangular 360° frames into a COLMAP reconstruction that can be
 opened directly in [Brush](https://github.com/ArthurBrussee/brush) for Gaussian
 Splat training.
@@ -8,6 +10,81 @@ The pipeline follows COLMAP's official spherical-image workflow. Each panorama
 is rendered as a fixed rig of perspective cameras, then processed through
 feature extraction, feature matching, and incremental Structure-from-Motion.
 The strongest reconstructed component is exported as a standard COLMAP dataset.
+
+## Community desktop app — Windows, macOS, and Linux
+
+`COLMAP 360 Studio Community` is the portable, unofficial interface. It checks
+Python, the required Python modules, FFmpeg/FFprobe, COLMAP, and the independent
+Brush application every time it starts. Missing required tools are shown in
+red; Brush is optional, so a dataset can still be created before Brush is
+installed. The interface also selects the video and output directory, estimates
+frames, 360 virtual views and processing time, runs the pipeline, and keeps the
+console as the only scrollable area.
+
+After completing the installation steps below, start it with the launcher for
+your operating system:
+
+- **Windows:** double-click `run_community_app.bat`.
+- **macOS:** double-click `run_community_app.command`.
+- **Linux:** run `./run_community_app.sh`.
+
+Brush is detected from the system `PATH` and common application folders. If it
+was extracted elsewhere, use **Locate Brush…** or set the `BRUSH_PATH`
+environment variable to its app or executable before launching this tool. Brush is developed independently;
+this community interface is not affiliated with or endorsed by its authors.
+
+### Self-contained installers
+
+Packaged releases include Python, PyCOLMAP, OpenCV, FFmpeg, Pillow, SciPy, and
+the remaining pipeline modules. End users do not need to install those
+dependencies. Brush remains a separate download and is linked from the app's
+**System configuration** section.
+
+- macOS artifact: `COLMAP-360-Studio-Community-macOS.dmg`
+- Windows artifact: `COLMAP-360-Studio-Community-Windows-Setup.exe`
+
+Build locally on Apple Silicon macOS with:
+
+```bash
+python packaging/build_desktop.py --platform macos
+```
+
+The GitHub Actions workflow `.github/workflows/build-desktop.yml` builds each
+artifact on its native operating system. PyInstaller does not cross-compile a
+Windows executable from macOS.
+
+## Visual macOS app
+
+`COLMAP 360 Studio` adds a native graphical interface for people who prefer not
+to use Terminal. It accepts `.mov` and `.mp4` videos, offers 1, 2, 5, or 10 FPS,
+lets the user choose the result folder, displays live progress and logs, and
+never overwrites an earlier job. After a video is selected, changing the FPS
+updates the estimated total frames, 360 virtual views, and average processing
+duration immediately.
+
+- **360° video:** verifies the equirectangular 2:1 format and uses the official
+  overlapping 12-camera rig before running COLMAP.
+- **Flat video:** OpenCV measures sharpness and visual features, then COLMAP
+  estimates camera poses and the sparse 3D model.
+- **Frames only:** creates the image sequence without starting reconstruction.
+- **Brush output:** full runs finish with a standard `brush-dataset` folder.
+
+The app requires macOS 13 or newer. Build the local application with:
+
+```bash
+./build_macos_app.sh
+```
+
+Then open:
+
+```text
+dist/COLMAP 360 Studio.app
+```
+
+On first use, select **Prepare Mac**. The app checks Homebrew, Python 3.12,
+FFmpeg, COLMAP, PyCOLMAP, and OpenCV, and installs missing supported components.
+If Homebrew itself is missing, install it once from
+[brew.sh](https://brew.sh), reopen the app, and select **Prepare Mac** again.
 
 > **Proven result:** 239 panoramas at 7680 × 3840 produced 2,868 perspective
 > images. COLMAP processing took about 1 hour 40 minutes on CPU, and the Brush
@@ -28,6 +105,8 @@ a robust upstream default, not a documented universal minimum.
 
 - macOS, Windows 10/11, or Linux, 64-bit
 - Python 3.11 or 3.12
+- Python Tcl/Tk graphical component (`python-tk@3.12` on Homebrew or
+  `python3-tk` on Ubuntu/Debian)
 - 16 GB RAM minimum; 32 GB recommended
 - At least 15 GB free disk space; 30 GB recommended for large datasets
 - Panoramas with an exact 2:1 aspect ratio and consistent resolution
@@ -215,6 +294,89 @@ Convierte fotogramas equirectangulares 360° en una reconstrucción COLMAP que s
 puede abrir directamente en [Brush](https://github.com/ArthurBrussee/brush)
 para entrenar Gaussian Splats.
 
+### Aplicación comunitaria — Windows, macOS y Linux
+
+`COLMAP 360 Studio Community` es la nueva interfaz portable y no oficial. Cada
+vez que inicia comprueba Python, los módulos necesarios de Python,
+FFmpeg/FFprobe, COLMAP y la aplicación independiente Brush. Los componentes
+obligatorios que falten aparecen en rojo. Brush se presenta como opcional, por
+lo que el usuario puede generar el dataset aunque todavía no lo haya instalado.
+
+La misma interfaz permite seleccionar el video y la carpeta de resultados,
+escoger 1, 2, 5 o 10 FPS, ver el cálculo estimado de fotogramas, vistas
+virtuales y duración, ejecutar el pipeline y revisar el registro. Únicamente el
+registro de consola utiliza desplazamiento.
+
+Después de realizar la instalación indicada más adelante, inicie la aplicación
+con el archivo correspondiente:
+
+- **Windows:** haga doble clic en `run_community_app.bat`.
+- **macOS:** haga doble clic en `run_community_app.command`.
+- **Linux:** ejecute `./run_community_app.sh`.
+
+La aplicación busca Brush en el `PATH` y en las carpetas habituales de cada
+sistema. Si Brush fue descomprimido en otra ubicación, pulse **Localizar
+Brush…** o configure la variable de entorno `BRUSH_PATH` con la ruta de la
+aplicación o del ejecutable antes de iniciar la herramienta. Brush es desarrollado de forma independiente; esta
+interfaz comunitaria no está afiliada ni respaldada por sus autores.
+
+#### Instaladores autónomos
+
+Las versiones empaquetadas incluyen Python, PyCOLMAP, OpenCV, FFmpeg, Pillow,
+SciPy y los demás módulos del pipeline. El usuario final no tiene que instalar
+estas dependencias. Brush se mantiene como una descarga independiente y la
+aplicación muestra su enlace en **Configuración del sistema**.
+
+- Archivo para macOS: `COLMAP-360-Studio-Community-macOS.dmg`
+- Instalador para Windows: `COLMAP-360-Studio-Community-Windows-Setup.exe`
+
+En un Mac Apple Silicon se construye el DMG con:
+
+```bash
+python packaging/build_desktop.py --platform macos
+```
+
+El flujo `.github/workflows/build-desktop.yml` construye cada instalador en su
+sistema operativo correspondiente. PyInstaller no permite compilar de forma
+cruzada un ejecutable de Windows desde macOS.
+
+### Aplicación visual para macOS
+
+`COLMAP 360 Studio` permite usar la herramienta sin escribir comandos en
+Terminal. La aplicación nativa acepta videos `.mov` y `.mp4`, permite escoger
+1, 2, 5 o 10 FPS, elegir la carpeta de resultados y observar el avance y el
+registro en tiempo real. Cada ejecución crea una carpeta nueva y nunca
+sobrescribe trabajos anteriores. Después de seleccionar un video, cambiar los
+FPS actualiza inmediatamente el total estimado de fotogramas, las vistas
+virtuales 360 y la duración promedio del procesamiento.
+
+- **Video 360°:** comprueba que el video equirectangular tenga relación 2:1 y
+  usa el rig oficial superpuesto de 12 cámaras virtuales antes de ejecutar
+  COLMAP.
+- **Video plano:** OpenCV mide la nitidez y las características visuales;
+  después COLMAP calcula las poses de cámara y el modelo 3D disperso.
+- **Solo fotogramas:** genera la secuencia de imágenes sin iniciar COLMAP.
+- **Salida para Brush:** una ejecución completa termina con una carpeta
+  estándar llamada `brush-dataset`.
+
+Se necesita macOS 13 o superior. Para construir la aplicación localmente:
+
+```bash
+./build_macos_app.sh
+```
+
+Después abra:
+
+```text
+dist/COLMAP 360 Studio.app
+```
+
+En el primer uso pulse **Preparar Mac**. La aplicación revisa Homebrew, Python
+3.12, FFmpeg, COLMAP, PyCOLMAP y OpenCV, e instala los componentes compatibles
+que falten. Si Homebrew todavía no existe en el computador, instálelo una sola
+vez desde [brew.sh](https://brew.sh), vuelva a abrir la aplicación y pulse
+**Preparar Mac** nuevamente.
+
 El pipeline sigue el flujo oficial de COLMAP para imágenes esféricas. Cada
 panorama se renderiza como un rig fijo de cámaras de perspectiva. Después se
 ejecutan la extracción de características, el matching y la reconstrucción
@@ -242,6 +404,8 @@ universal documentado.
 
 - macOS, Windows 10/11 o Linux de 64 bits
 - Python 3.11 o 3.12
+- Componente gráfico Tcl/Tk de Python (`python-tk@3.12` mediante Homebrew o
+  `python3-tk` en Ubuntu/Debian)
 - 16 GB de RAM como mínimo; 32 GB recomendados
 - Al menos 15 GB de espacio libre; 30 GB recomendados para datasets grandes
 - Panoramas con relación de aspecto exacta 2:1 y resolución consistente

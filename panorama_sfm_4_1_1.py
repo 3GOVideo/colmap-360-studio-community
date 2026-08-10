@@ -620,7 +620,7 @@ def run(args: argparse.Namespace) -> None:
         run_perspective(args, database_path, rec_path)
 
 
-if __name__ == "__main__":
+def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input_image_path", type=Path, required=True)
     parser.add_argument("--output_path", type=Path, required=True)
@@ -644,3 +644,8 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     run(args)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

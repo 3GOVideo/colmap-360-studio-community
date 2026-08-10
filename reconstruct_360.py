@@ -6,10 +6,11 @@ from __future__ import annotations
 import argparse
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 import pycolmap
+
+from runtime_support import is_frozen, worker_command
 
 
 PROJECT_DIR = Path(__file__).resolve().parent
@@ -112,7 +113,7 @@ def main() -> int:
     images = image_files(source)
     if not images:
         raise SystemExit(f"No supported images found in: {source}")
-    if not OFFICIAL_PIPELINE.is_file():
+    if not is_frozen() and not OFFICIAL_PIPELINE.is_file():
         raise SystemExit(f"Missing version-matched pipeline: {OFFICIAL_PIPELINE}")
     if output.exists():
         if not args.force:
@@ -122,9 +123,10 @@ def main() -> int:
             )
         shutil.rmtree(output)
 
-    command = [
-        sys.executable,
-        str(OFFICIAL_PIPELINE),
+    command = worker_command(
+        "--panorama-worker",
+        OFFICIAL_PIPELINE,
+        [
         "--input_image_path",
         str(source),
         "--output_path",
@@ -135,7 +137,8 @@ def main() -> int:
         "incremental",
         "--pano_render_type",
         args.render_type,
-    ]
+        ],
+    )
 
     views_per_pano = 12 if args.render_type == "perspective_overlapping" else 4
     print(f"Input panoramas: {len(images)}")

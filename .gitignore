@@ -11,3 +11,10 @@ database.db
 *.ssproj
 *.bin
 *.db
+dist/
+dist-community/
+build-community/
+packaging/AppIcon.icns
+packaging/AppIcon.ico
+macos-app/.build/
+macos-app/.local-build-cache/

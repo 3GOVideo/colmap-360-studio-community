@@ -4,3 +4,4 @@ pillow>=11.0
 opencv-python-headless>=4.10
 scipy>=1.14
 tqdm>=4.66
+imageio-ffmpeg>=0.6

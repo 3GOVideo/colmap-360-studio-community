@@ -34,7 +34,7 @@ fotogramas equirectangulares y, si se confirma, inicia COLMAP con el rig de
 
 Opciones:
   --video RUTA       Seleccionar un video sin mostrar el menú.
-  --fps 1|2|5        Elegir FPS sin mostrar la pregunta.
+  --fps 1|2|5|10     Elegir FPS sin mostrar la pregunta.
   --frames-only      Extraer frames y no ejecutar COLMAP.
   --skip-install     No instalar paquetes; solo comprobar dependencias.
   --yes              Confirmar automáticamente la reconstrucción.
@@ -66,7 +66,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --fps)
-      [[ $# -ge 2 ]] || fail "--fps necesita 1, 2 o 5."
+      [[ $# -ge 2 ]] || fail "--fps necesita 1, 2, 5 o 10."
       FPS_CHOICE="$2"
       shift 2
       ;;
@@ -93,8 +93,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "$FPS_CHOICE" in
-  ""|1|2|5) ;;
-  *) fail "FPS inválido: $FPS_CHOICE. Las opciones son 1, 2 o 5." ;;
+  ""|1|2|5|10) ;;
+  *) fail "FPS inválido: $FPS_CHOICE. Las opciones son 1, 2, 5 o 10." ;;
 esac
 
 printf "%b\n" "${BOLD}COLMAP 360° Video Assistant${RESET}"
@@ -239,11 +239,12 @@ if [[ -z "$FPS_CHOICE" ]]; then
   printf "  1) 1 FPS  - menos imágenes, proceso más rápido\n"
   printf "  2) 2 FPS  - recomendado para comenzar\n"
   printf "  5) 5 FPS  - más solapamiento, proceso más pesado\n"
+  printf " 10) 10 FPS - máximo detalle, proceso mucho más pesado\n"
   while true; do
-    read -r -p "¿Cuántos FPS desea extraer? [1/2/5]: " FPS_CHOICE
+    read -r -p "¿Cuántos FPS desea extraer? [1/2/5/10]: " FPS_CHOICE
     case "$FPS_CHOICE" in
-      1|2|5) break ;;
-      *) warn "Escriba 1, 2 o 5." ;;
+      1|2|5|10) break ;;
+      *) warn "Escriba 1, 2, 5 o 10." ;;
     esac
   done
 fi
