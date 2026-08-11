@@ -2,6 +2,19 @@
 
 ![COLMAP 360 Studio](thumbnail-macos-app.png)
 
+## Download / Descargar
+
+**[Latest release / Última versión: v0.2.0](https://github.com/3GOVideo/colmap-360-studio-community/releases/tag/v0.2.0)**
+
+| Platform / Plataforma | Installer / Instalador |
+| --- | --- |
+| Windows 10/11 (x64) | **[Download `.exe` / Descargar `.exe`](https://github.com/3GOVideo/colmap-360-studio-community/releases/download/v0.2.0/COLMAP-360-Studio-Community-Windows-Setup.exe)** |
+| macOS (Apple Silicon) | **[Download `.dmg` / Descargar `.dmg`](https://github.com/3GOVideo/colmap-360-studio-community/releases/download/v0.2.0/COLMAP-360-Studio-Community-macOS.dmg)** |
+
+> This repository and its releases are private. Sign in with a GitHub account
+> that has access. / Este repositorio y sus releases son privados. Inicia sesión
+> con una cuenta de GitHub autorizada.
+
 Turn equirectangular 360° frames into a COLMAP reconstruction that can be
 opened directly in [Brush](https://github.com/ArthurBrussee/brush) for Gaussian
 Splat training.
