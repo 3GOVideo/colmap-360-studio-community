@@ -4,12 +4,12 @@
 
 ## Download / Descargar
 
-**[Latest release / Última versión: v0.2.0](https://github.com/3GOVideo/colmap-360-studio-community/releases/tag/v0.2.0)**
+**[Latest release / Última versión](https://github.com/3GOVideo/colmap-360-studio-community/releases/latest)**
 
 | Platform / Plataforma | Installer / Instalador |
 | --- | --- |
-| Windows 10/11 (x64) | **[Download `.exe` / Descargar `.exe`](https://github.com/3GOVideo/colmap-360-studio-community/releases/download/v0.2.0/COLMAP-360-Studio-Community-Windows-Setup.exe)** |
-| macOS (Apple Silicon) | **[Download `.dmg` / Descargar `.dmg`](https://github.com/3GOVideo/colmap-360-studio-community/releases/download/v0.2.0/COLMAP-360-Studio-Community-macOS.dmg)** |
+| Windows 10/11 (x64) — v0.2.1 | **[Download portable `.zip` / Descargar `.zip`](https://github.com/3GOVideo/colmap-360-studio-community/releases/download/v0.2.1/COLMAP-360-Studio-Community-Windows-v0.2.1.zip)** |
+| macOS (Apple Silicon) — v0.2.0 | **[Download `.dmg` / Descargar `.dmg`](https://github.com/3GOVideo/colmap-360-studio-community/releases/download/v0.2.0/COLMAP-360-Studio-Community-macOS.dmg)** |
 
 > This repository and its releases are private. Sign in with a GitHub account
 > that has access. / Este repositorio y sus releases son privados. Inicia sesión
@@ -64,7 +64,8 @@ dependencies. Brush remains a separate download and is linked from the app's
 **System configuration** section.
 
 - macOS artifact: `COLMAP-360-Studio-Community-macOS.dmg`
-- Windows artifact: `COLMAP-360-Studio-Community-Windows-Setup.exe`
+- Windows artifact: `COLMAP-360-Studio-Community-Windows-v0.2.1.zip` (extract
+  the complete folder, then launch `COLMAP 360 Studio Community.exe`)
 
 Build locally on Apple Silicon macOS with:
 
@@ -351,7 +352,9 @@ estas dependencias. Brush se mantiene como una descarga independiente y la
 aplicación muestra su enlace en **Configuración del sistema**.
 
 - Archivo para macOS: `COLMAP-360-Studio-Community-macOS.dmg`
-- Instalador para Windows: `COLMAP-360-Studio-Community-Windows-Setup.exe`
+- Archivo para Windows: `COLMAP-360-Studio-Community-Windows-v0.2.1.zip`
+  (extraiga la carpeta completa y luego abra
+  `COLMAP 360 Studio Community.exe`)
 
 En un Mac Apple Silicon se construye el DMG con:
 
