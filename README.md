@@ -15,6 +15,16 @@
 > that has access. / Este repositorio y sus releases son privados. Inicia sesión
 > con una cuenta de GitHub autorizada.
 
+## Development and community / Desarrollo y comunidad
+
+Developed by **[@sajornad](https://github.com/sajornad)** as a contribution from
+**[3GOVideo](https://3govideo.com)** to the Gaussian Splatting and photogrammetry
+community.
+
+Desarrollado por **[@sajornad](https://github.com/sajornad)** como un aporte de
+**[3GOVideo](https://3govideo.com)** para la comunidad de Gaussian Splatting y
+fotogrametría.
+
 Turn equirectangular 360° frames into a COLMAP reconstruction that can be
 opened directly in [Brush](https://github.com/ArthurBrussee/brush) for Gaussian
 Splat training.
