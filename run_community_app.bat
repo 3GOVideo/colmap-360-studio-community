@@ -2,6 +2,10 @@
 setlocal
 set "APP_DIR=%~dp0"
 
+if exist "%APP_DIR%tools\brush\brush_app.exe" (
+  set "BRUSH_PATH=%APP_DIR%tools\brush\brush_app.exe"
+)
+
 if exist "%APP_DIR%.venv\Scripts\python.exe" (
   set "PYTHON_EXE=%APP_DIR%.venv\Scripts\python.exe"
   set "PYTHON_ARGS="

@@ -222,7 +222,11 @@ class CommunityApp:
             tk.Label(card, text=mark, fg=color).pack(anchor="w")
             ttk.Label(card, text=item.detail, style="Subtitle.TLabel").pack(anchor="w")
             if item.name == "Brush" and not item.installed:
-                ttk.Button(card, text="Página de Brush ↗", command=lambda: webbrowser.open(BRUSH_DOWNLOAD_URL)).pack(anchor="w", pady=(5, 0))
+                ttk.Button(
+                    card,
+                    text="Descargar último release ↗",
+                    command=lambda: webbrowser.open(BRUSH_DOWNLOAD_URL),
+                ).pack(anchor="w", pady=(5, 0))
         required_ok = required_tools_ready(statuses)
         brush_ok = next((item.installed for item in statuses if item.name == "Brush"), False)
         self.system_summary.set("Equipo listo" if required_ok else "Faltan dependencias")
@@ -234,7 +238,7 @@ class CommunityApp:
                 350,
                 lambda: messagebox.showinfo(
                     "Brush es necesario para entrenar",
-                    "La creación del dataset funciona sin Brush. Para entrenar el Gaussian Splat, descarga Brush desde el enlace disponible en Configuración del sistema.",
+                    "La creación del dataset funciona sin Brush. Para entrenar el Gaussian Splat, usa el botón de Configuración del sistema para abrir directamente el último release disponible.",
                 ),
             )
 
