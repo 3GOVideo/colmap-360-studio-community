@@ -5,20 +5,21 @@ struct ContentView: View {
     @EnvironmentObject private var pipeline: PipelineController
     @State private var isDropTargeted = false
     @State private var showSetupConfirmation = false
+    @State private var selectedTab = 0
 
     var body: some View {
         ZStack {
             Color(nsColor: .windowBackgroundColor).ignoresSafeArea()
             VStack(spacing: 0) {
                 header
-                VStack(spacing: 10) {
-                    videoCard
-                    optionsCard
-                    outputCard
-                    runCard
-                    logCard
+                TabView(selection: $selectedTab) {
+                    datasetWorkspace
+                        .tabItem { Label("Dataset COLMAP", systemImage: "camera.metering.matrix") }
+                        .tag(0)
+                    brushWorkspace
+                        .tabItem { Label("Brush Studio", systemImage: "view.3d") }
+                        .tag(1)
                 }
-                .padding(16)
             }
         }
         .alert("Preparar este Mac", isPresented: $showSetupConfirmation) {
@@ -28,6 +29,196 @@ struct ContentView: View {
             Text("La app revisará Python, FFmpeg y COLMAP. Si falta algo, Homebrew y Python podrán descargarlo. El avance aparecerá en el registro.")
         }
         .tint(.blue)
+    }
+
+    private var datasetWorkspace: some View {
+        VStack(spacing: 10) {
+            videoCard
+            optionsCard
+            outputCard
+            runCard
+            logCard
+        }
+        .padding(16)
+    }
+
+    private var brushWorkspace: some View {
+        HStack(spacing: 12) {
+            VStack(spacing: 12) {
+                GroupBox {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label(pipeline.brushState.label, systemImage: pipeline.brushState.icon)
+                            .font(.headline)
+                            .foregroundStyle(pipeline.brushState.color)
+                        pathSummary(
+                            title: "Motor Brush",
+                            path: pipeline.brushExecutableURL?.path ?? "No localizado"
+                        )
+                        Button("Localizar Brush…") { pipeline.chooseBrush() }
+                            .disabled(pipeline.isBrushRunning || pipeline.isRunning)
+                        Link(
+                            "Descargar Brush oficial ↗",
+                            destination: URL(string: "https://github.com/ArthurBrussee/brush/releases/latest")!
+                        )
+                        .font(.caption)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(6)
+                } label: {
+                    Label("1. Motor", systemImage: "cpu")
+                }
+
+                GroupBox {
+                    VStack(alignment: .leading, spacing: 10) {
+                        pathSummary(
+                            title: "Dataset",
+                            path: pipeline.resolvedBrushDatasetURL?.path ?? "Crea o selecciona un dataset"
+                        )
+                        Button("Seleccionar dataset…") { pipeline.chooseBrushDataset() }
+                            .disabled(pipeline.isBrushRunning || pipeline.isRunning)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(6)
+                } label: {
+                    Label("2. Datos", systemImage: "externaldrive")
+                }
+
+                GroupBox {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            metricValue(pipeline.brushStep.formatted(), label: "Paso")
+                            metricValue(pipeline.brushSplatCount?.formatted() ?? "—", label: "Splats")
+                        }
+                        ProgressView(value: pipeline.brushProgress) {
+                            Text("\(pipeline.brushStep.formatted()) / \(pipeline.brushTotalSteps.formatted())")
+                                .font(.caption.monospacedDigit())
+                        }
+                        Text("Configuración estándar de Brush 0.3: 30.000 pasos y máximo de 10 millones de splats. El visor recibe un snapshot cada 500 pasos.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        HStack {
+                            if pipeline.isBrushRunning {
+                                Button("Cancelar", role: .destructive) { pipeline.cancelBrushTraining() }
+                            }
+                            Spacer()
+                            Button {
+                                pipeline.startBrushTraining()
+                            } label: {
+                                Label("Entrenar en Brush", systemImage: "play.fill")
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(!pipeline.canStartBrush)
+                        }
+                        if let output = pipeline.brushOutputURL {
+                            Button("Mostrar exports") {
+                                NSWorkspace.shared.activateFileViewerSelecting([output])
+                            }
+                            .buttonStyle(.link)
+                        }
+                    }
+                    .padding(6)
+                } label: {
+                    Label("3. Entrenamiento", systemImage: "sparkles")
+                }
+                Spacer(minLength: 0)
+            }
+            .frame(width: 330)
+
+            VStack(spacing: 10) {
+                GroupBox {
+                    ZStack(alignment: .topLeading) {
+                        SplatPreview(
+                            fileURL: pipeline.latestSplatURL,
+                            displayedPointCount: $pipeline.previewPointCount
+                        )
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        if pipeline.latestSplatURL == nil {
+                            VStack(spacing: 10) {
+                                Image(systemName: "view.3d")
+                                    .font(.system(size: 38))
+                                    .foregroundStyle(.secondary)
+                                Text("Esperando el primer snapshot")
+                                    .font(.headline)
+                                Text("El Gaussian Splat aparecerá aquí mientras Brush entrena.")
+                                    .font(.callout)
+                                    .foregroundStyle(.secondary)
+                                Text("Vista previa ligera de los centros de splats; el render final conserva toda la información en el PLY.")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .multilineTextAlignment(.center)
+                                    .frame(maxWidth: 420)
+                            }
+                            .padding(24)
+                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                        } else {
+                            HStack(spacing: 8) {
+                                Label(pipeline.latestSplatURL?.lastPathComponent ?? "", systemImage: "cube.transparent")
+                                Text("·")
+                                Text("\(pipeline.previewPointCount.formatted()) puntos")
+                            }
+                            .font(.caption.monospacedDigit())
+                            .padding(8)
+                            .background(.ultraThinMaterial, in: Capsule())
+                            .padding(10)
+                        }
+                    }
+                } label: {
+                    HStack {
+                        Label("Visor integrado", systemImage: "rotate.3d")
+                        Spacer()
+                        Text("Arrastra para orbitar · rueda para acercar")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .frame(maxHeight: .infinity)
+
+                GroupBox {
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            Text(pipeline.brushLogText.isEmpty ? "Aquí verás la carga del dataset, los pasos de entrenamiento y cada exportación." : pipeline.brushLogText)
+                                .font(.system(.caption2, design: .monospaced))
+                                .foregroundStyle(pipeline.brushLogText.isEmpty ? .secondary : .primary)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(8)
+                                .id("brushLogBottom")
+                        }
+                        .onChange(of: pipeline.brushLogText) { _ in
+                            proxy.scrollTo("brushLogBottom", anchor: .bottom)
+                        }
+                    }
+                    .frame(height: 130)
+                    .background(Color(nsColor: .textBackgroundColor))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                } label: {
+                    HStack {
+                        Label("Registro Brush", systemImage: "terminal")
+                        Spacer()
+                        Button("Limpiar") { pipeline.brushLogText = "" }
+                            .buttonStyle(.plain)
+                            .disabled(pipeline.isBrushRunning)
+                    }
+                }
+            }
+        }
+        .padding(16)
+    }
+
+    private func pathSummary(title: String, path: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            Text(path).font(.caption).lineLimit(2).truncationMode(.middle).textSelection(.enabled)
+        }
+    }
+
+    private func metricValue(_ value: String, label: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(value).font(.title3.bold().monospacedDigit())
+            Text(label).font(.caption2).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var header: some View {

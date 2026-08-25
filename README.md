@@ -25,6 +25,29 @@ Desarrollado por **[@sajornad](https://github.com/sajornad)** como un aporte de
 **[3GOVideo](https://3govideo.com)** para la comunidad de Gaussian Splatting y
 fotogrametría.
 
+## Experimental integrated Brush Studio
+
+The `feature/integrated-brush-viewer` branch adds an experimental native macOS
+workspace that runs the independent Brush 0.3 CLI with its standard training
+configuration (30,000 steps and a 10-million-splat maximum). COLMAP 360 Studio
+captures the Brush log, reports progress, exports a live `.ply` snapshot every
+500 steps, and displays the newest snapshot in an embedded SceneKit viewer with
+orbit and zoom controls. The lightweight viewer samples at most 300,000 splat
+centers for responsiveness; the exported PLY retains the complete model. Brush
+is still installed separately and remains an independent open-source project;
+it is not redistributed by this repository.
+
+La rama `feature/integrated-brush-viewer` incorpora un espacio experimental
+nativo para macOS que ejecuta el CLI independiente de Brush 0.3 con su
+configuración estándar de entrenamiento (30.000 pasos y máximo de 10 millones
+de splats). COLMAP 360 Studio captura el registro de Brush, muestra el avance,
+exporta un snapshot `.ply` cada 500 pasos y visualiza el más reciente dentro de
+la aplicación mediante SceneKit, con controles de órbita y zoom. Para conservar
+la fluidez, el visor muestra como máximo 300.000 centros de splats; el PLY
+exportado conserva el modelo completo. Brush se instala por separado y continúa
+siendo un proyecto independiente de código abierto; este repositorio no
+redistribuye su aplicación.
+
 Turn equirectangular 360° frames into a COLMAP reconstruction that can be
 opened directly in [Brush](https://github.com/ArthurBrussee/brush) for Gaussian
 Splat training.

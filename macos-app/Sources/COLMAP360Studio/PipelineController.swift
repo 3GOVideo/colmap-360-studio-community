@@ -42,6 +42,40 @@ enum DependencyState {
     }
 }
 
+enum BrushTrainingState {
+    case unavailable, ready, running, completed, failed
+
+    var label: String {
+        switch self {
+        case .unavailable: return "Brush no localizado"
+        case .ready: return "Listo para entrenar"
+        case .running: return "Entrenando Gaussian Splat"
+        case .completed: return "Entrenamiento terminado"
+        case .failed: return "El entrenamiento se detuvo"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .unavailable: return "exclamationmark.triangle"
+        case .ready: return "checkmark.circle"
+        case .running: return "waveform.path.ecg"
+        case .completed: return "checkmark.circle.fill"
+        case .failed: return "xmark.octagon.fill"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .unavailable: return .orange
+        case .ready: return .blue
+        case .running: return .cyan
+        case .completed: return .green
+        case .failed: return .red
+        }
+    }
+}
+
 private struct JobConfiguration: Equatable {
     let videoPath: String
     let outputPath: String
@@ -67,12 +101,31 @@ final class PipelineController: NSObject, ObservableObject {
     @Published private(set) var videoHeight = 0
     @Published var dependencyState: DependencyState = .unknown
     @Published var lastOutputURL: URL?
+    @Published var brushState: BrushTrainingState = .unavailable
+    @Published var brushDatasetURL: URL?
+    @Published var brushOutputURL: URL?
+    @Published var latestSplatURL: URL?
+    @Published var brushExecutableURL: URL?
+    @Published var brushLogText = ""
+    @Published var brushProgress = 0.0
+    @Published var brushStep = 0
+    @Published var brushSplatCount: Int?
+    @Published var previewPointCount = 0
+    @Published var isBrushRunning = false
+
+    let brushTotalSteps = 30_000
+    let brushExportEvery = 500
 
     private var process: Process?
     private var logHandle: FileHandle?
     private var bufferedOutput = ""
     private var activityToken: NSObjectProtocol?
     private var completedConfiguration: JobConfiguration?
+    private var brushProcess: Process?
+    private var brushLogHandle: FileHandle?
+    private var brushBufferedOutput = ""
+    private var brushMonitor: Timer?
+    private var brushActivityToken: NSObjectProtocol?
 
     private var currentConfiguration: JobConfiguration? {
         guard let videoURL else { return nil }
@@ -90,7 +143,22 @@ final class PipelineController: NSObject, ObservableObject {
     }
 
     var canStart: Bool {
-        currentConfiguration != nil && !isRunning && !hasCompletedCurrentConfiguration
+        currentConfiguration != nil && !isRunning && !isBrushRunning && !hasCompletedCurrentConfiguration
+    }
+
+    var canStartBrush: Bool {
+        brushExecutableURL != nil && resolvedBrushDatasetURL != nil && !isRunning && !isBrushRunning
+    }
+
+    var resolvedBrushDatasetURL: URL? {
+        if let brushDatasetURL, isBrushDataset(brushDatasetURL) { return brushDatasetURL }
+        guard let lastOutputURL else { return nil }
+        let candidates = [
+            lastOutputURL.appendingPathComponent("reconstruction/brush-dataset"),
+            lastOutputURL.appendingPathComponent("brush-dataset"),
+            lastOutputURL,
+        ]
+        return candidates.first(where: isBrushDataset)
     }
 
     var estimatedFrameCount: Int {
@@ -127,6 +195,7 @@ final class PipelineController: NSObject, ObservableObject {
         if let videoFlag = arguments.firstIndex(of: "--video"), arguments.indices.contains(videoFlag + 1) {
             setVideo(URL(fileURLWithPath: arguments[videoFlag + 1]))
         }
+        refreshBrushAvailability()
         Task { await checkDependencies() }
     }
 
@@ -145,6 +214,167 @@ final class PipelineController: NSObject, ObservableObject {
         panel.canChooseDirectories = true
         panel.canCreateDirectories = true
         if panel.runModal() == .OK, let url = panel.url { outputURL = url }
+    }
+
+    func chooseBrush() {
+        let panel = NSOpenPanel()
+        panel.title = "Selecciona Brush o Brush.app"
+        panel.message = "Selecciona el ejecutable brush_app descargado desde el repositorio oficial."
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        if panel.runModal() == .OK, let selected = panel.url,
+           let executable = resolveBrushExecutable(selected) {
+            UserDefaults.standard.set(executable.path, forKey: "BrushExecutablePath")
+            brushExecutableURL = executable
+            brushState = .ready
+            appendBrushLog("Brush localizado: \(executable.path)")
+        }
+    }
+
+    func chooseBrushDataset() {
+        let panel = NSOpenPanel()
+        panel.title = "Selecciona un dataset COLMAP preparado para Brush"
+        panel.message = "La carpeta debe contener images y sparse/0."
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        if panel.runModal() == .OK, let url = panel.url {
+            guard isBrushDataset(url) else {
+                appendBrushLog("Dataset no válido: faltan images o los archivos binarios de sparse/0.")
+                return
+            }
+            brushDatasetURL = url
+            appendBrushLog("Dataset seleccionado: \(url.path)")
+        }
+    }
+
+    func startBrushTraining() {
+        guard let brush = brushExecutableURL ?? findBrushExecutable() else {
+            brushState = .unavailable
+            appendBrushLog("Localiza Brush antes de iniciar el entrenamiento.")
+            return
+        }
+        guard let dataset = resolvedBrushDatasetURL else {
+            appendBrushLog("Selecciona o crea primero un dataset compatible con Brush.")
+            return
+        }
+        guard !isRunning && !isBrushRunning else { return }
+
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        let output = dataset.deletingLastPathComponent()
+            .appendingPathComponent("brush-training-\(formatter.string(from: Date()))", isDirectory: true)
+        guard let python = pythonPath() else {
+            appendBrushLog("No se encontró Python para iniciar el adaptador de Brush.")
+            return
+        }
+        let runner = pipelineDirectory().appendingPathComponent("brush_runner.py")
+        guard FileManager.default.fileExists(atPath: runner.path) else {
+            appendBrushLog("Falta brush_runner.py dentro del paquete de la aplicación.")
+            return
+        }
+
+        brushExecutableURL = brush
+        brushDatasetURL = dataset
+        brushOutputURL = output
+        latestSplatURL = nil
+        previewPointCount = 0
+        brushStep = 0
+        brushSplatCount = nil
+        brushProgress = 0
+        brushBufferedOutput = ""
+        brushState = .running
+        isBrushRunning = true
+        appendBrushLog("\n— Entrenamiento Brush estándar —")
+        appendBrushLog("Dataset: \(dataset.path)")
+        appendBrushLog("30.000 pasos · máximo estándar de 10 millones de splats · snapshot cada 500 pasos")
+
+        let task = Process()
+        let pipe = Pipe()
+        task.executableURL = URL(fileURLWithPath: python)
+        task.arguments = [
+            runner.path,
+            "--brush", brush.path,
+            "--dataset", dataset.path,
+            "--output", output.path,
+            "--total-steps", String(brushTotalSteps),
+            "--export-every", String(brushExportEvery),
+        ]
+        task.currentDirectoryURL = pipelineDirectory()
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        task.environment = environment
+        task.standardOutput = pipe
+        task.standardError = pipe
+        brushProcess = task
+        brushActivityToken = ProcessInfo.processInfo.beginActivity(
+            options: [.idleSystemSleepDisabled, .userInitiated],
+            reason: "Entrenamiento Brush en curso"
+        )
+
+        let logURL = output.deletingLastPathComponent().appendingPathComponent("COLMAP360Studio-Brush-last.log")
+        FileManager.default.createFile(atPath: logURL.path, contents: nil)
+        brushLogHandle = try? FileHandle(forWritingTo: logURL)
+        pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
+            Task { @MainActor in
+                self?.brushLogHandle?.write(data)
+                self?.consumeBrush(text)
+            }
+        }
+        task.terminationHandler = { [weak self] finished in
+            Task { @MainActor in
+                guard let self else { return }
+                pipe.fileHandleForReading.readabilityHandler = nil
+                try? self.brushLogHandle?.close()
+                self.brushLogHandle = nil
+                self.brushMonitor?.invalidate()
+                self.brushMonitor = nil
+                self.refreshLatestSplat()
+                self.isBrushRunning = false
+                self.brushProcess = nil
+                if let token = self.brushActivityToken {
+                    ProcessInfo.processInfo.endActivity(token)
+                    self.brushActivityToken = nil
+                }
+                if finished.terminationStatus == 0 {
+                    self.brushProgress = 1
+                    self.brushStep = self.brushTotalSteps
+                    self.brushState = .completed
+                    self.appendBrushLog("✓ Entrenamiento Brush terminado.")
+                    self.notifyCompletion()
+                } else if finished.terminationStatus == 2 || finished.terminationStatus == 15 {
+                    self.brushState = .ready
+                    self.appendBrushLog("Entrenamiento cancelado; los snapshots existentes se conservaron.")
+                } else {
+                    self.brushState = .failed
+                    self.appendBrushLog("Brush terminó con código \(finished.terminationStatus). Revisa el registro.")
+                }
+            }
+        }
+        do {
+            try task.run()
+            startBrushMonitor()
+        } catch {
+            isBrushRunning = false
+            brushProcess = nil
+            brushState = .failed
+            if let token = brushActivityToken {
+                ProcessInfo.processInfo.endActivity(token)
+                brushActivityToken = nil
+            }
+            appendBrushLog("No fue posible iniciar Brush: \(error.localizedDescription)")
+        }
+    }
+
+    func cancelBrushTraining() {
+        brushProcess?.interrupt()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            if self?.brushProcess?.isRunning == true { self?.brushProcess?.terminate() }
+        }
+        appendBrushLog("Cancelación de Brush solicitada.")
     }
 
     func receiveDrop(_ providers: [NSItemProvider]) -> Bool {
@@ -308,6 +538,7 @@ final class PipelineController: NSObject, ObservableObject {
                     self.statusText = isSetup ? "Mac preparado" : "Proceso terminado"
                     if !isSetup {
                         self.completedConfiguration = self.currentConfiguration
+                        self.discoverBrushDataset()
                         self.notifyCompletion()
                     }
                     self.appendLog(isSetup ? "✓ El Mac está listo." : "✓ Proceso completado correctamente.")
@@ -345,6 +576,158 @@ final class PipelineController: NSObject, ObservableObject {
                 appendLog("Resultado: \(path)")
             } else if !line.isEmpty {
                 appendLog(line)
+            }
+        }
+    }
+
+    private func consumeBrush(_ text: String) {
+        brushBufferedOutput += text
+        let lines = brushBufferedOutput.components(separatedBy: .newlines)
+        brushBufferedOutput = lines.last ?? ""
+        for line in lines.dropLast() where !line.isEmpty {
+            if line.hasPrefix("::brush-output ") {
+                brushOutputURL = URL(fileURLWithPath: String(line.dropFirst("::brush-output ".count)))
+                continue
+            }
+            updateBrushMetrics(from: line)
+            appendBrushLog(line)
+        }
+    }
+
+    private func updateBrushMetrics(from line: String) {
+        let stepPatterns = [
+            #"(?i)(?:step|iteration|iter)\s*[:#]?\s*(\d+)(?:\s*/\s*(\d+))?"#,
+            #"(?i)training\s+(\d+)\s*/\s*(\d+)"#,
+        ]
+        for pattern in stepPatterns {
+            guard let expression = try? NSRegularExpression(pattern: pattern),
+                  let match = expression.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
+                  let stepRange = Range(match.range(at: 1), in: line),
+                  let step = Int(line[stepRange]) else { continue }
+            brushStep = min(step, brushTotalSteps)
+            brushProgress = min(1, Double(brushStep) / Double(brushTotalSteps))
+            break
+        }
+        if let expression = try? NSRegularExpression(pattern: #"(?i)([0-9][0-9,._]*)\s+splats?"#),
+           let match = expression.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
+           let range = Range(match.range(at: 1), in: line) {
+            let digits = line[range].filter(\.isNumber)
+            brushSplatCount = Int(digits)
+        }
+    }
+
+    private func appendBrushLog(_ line: String) {
+        brushLogText += (brushLogText.isEmpty ? "" : "\n") + line
+    }
+
+    private func startBrushMonitor() {
+        brushMonitor?.invalidate()
+        brushMonitor = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.refreshLatestSplat() }
+        }
+        refreshLatestSplat()
+    }
+
+    private func refreshLatestSplat() {
+        guard let output = brushOutputURL,
+              let contents = try? FileManager.default.contentsOfDirectory(
+                at: output,
+                includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey],
+                options: [.skipsHiddenFiles]
+              ) else { return }
+        let candidates = contents.filter { $0.pathExtension.lowercased() == "ply" }
+        let latest = candidates.max { lhs, rhs in
+            let left = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            let right = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            return left < right
+        }
+        if let latest, latest != latestSplatURL {
+            latestSplatURL = latest
+            if let expression = try? NSRegularExpression(pattern: #"(\d+)(?=\.ply$)"#),
+               let match = expression.firstMatch(
+                in: latest.lastPathComponent,
+                range: NSRange(latest.lastPathComponent.startIndex..., in: latest.lastPathComponent)
+               ),
+               let range = Range(match.range(at: 1), in: latest.lastPathComponent),
+               let step = Int(latest.lastPathComponent[range]) {
+                brushStep = min(step, brushTotalSteps)
+                brushProgress = min(1, Double(brushStep) / Double(brushTotalSteps))
+            }
+            if let count = plyVertexCount(latest) { brushSplatCount = count }
+            appendBrushLog("Visor actualizado: \(latest.lastPathComponent)")
+        }
+    }
+
+    private func plyVertexCount(_ url: URL) -> Int? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        guard let data = try? handle.read(upToCount: 16_384),
+              let marker = "end_header\n".data(using: .utf8),
+              let end = data.range(of: marker)?.upperBound,
+              let header = String(data: data[..<end], encoding: .utf8) else { return nil }
+        for line in header.components(separatedBy: .newlines) where line.hasPrefix("element vertex ") {
+            return Int(line.split(separator: " ").last ?? "")
+        }
+        return nil
+    }
+
+    private func discoverBrushDataset() {
+        guard let dataset = resolvedBrushDatasetURL else { return }
+        brushDatasetURL = dataset
+        appendBrushLog("Dataset COLMAP listo para Brush: \(dataset.path)")
+    }
+
+    private func refreshBrushAvailability() {
+        brushExecutableURL = findBrushExecutable()
+        brushState = brushExecutableURL == nil ? .unavailable : .ready
+    }
+
+    private func findBrushExecutable() -> URL? {
+        var candidates: [URL] = []
+        if let configured = ProcessInfo.processInfo.environment["BRUSH_PATH"], !configured.isEmpty {
+            candidates.append(URL(fileURLWithPath: configured))
+        }
+        if let saved = UserDefaults.standard.string(forKey: "BrushExecutablePath"), !saved.isEmpty {
+            candidates.append(URL(fileURLWithPath: saved))
+        }
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let productRoot = pipelineDirectory().deletingLastPathComponent().deletingLastPathComponent()
+        candidates += [
+            URL(fileURLWithPath: "/Applications/Brush.app"),
+            URL(fileURLWithPath: "/Applications/brush-app.app"),
+            home.appendingPathComponent("Applications/Brush.app"),
+            home.appendingPathComponent("Applications/brush-app.app"),
+            home.appendingPathComponent("Downloads/brush-app-aarch64-apple-darwin/brush_app"),
+            productRoot.appendingPathComponent("Brush/brush-app-aarch64-apple-darwin/brush_app"),
+            URL(fileURLWithPath: "/opt/homebrew/bin/brush_app"),
+            URL(fileURLWithPath: "/usr/local/bin/brush_app"),
+        ]
+        return candidates.lazy.compactMap(resolveBrushExecutable).first
+    }
+
+    private func resolveBrushExecutable(_ candidate: URL) -> URL? {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: candidate.path, isDirectory: &isDirectory) else { return nil }
+        if candidate.pathExtension.lowercased() == "app" || isDirectory.boolValue {
+            if let executable = Bundle(url: candidate)?.executableURL,
+               FileManager.default.isExecutableFile(atPath: executable.path) { return executable }
+            for name in ["brush_app", "brush-app", "brush"] {
+                let executable = candidate.appendingPathComponent("Contents/MacOS/\(name)")
+                if FileManager.default.isExecutableFile(atPath: executable.path) { return executable }
+            }
+            return nil
+        }
+        return FileManager.default.isExecutableFile(atPath: candidate.path) ? candidate : nil
+    }
+
+    private func isBrushDataset(_ url: URL) -> Bool {
+        let manager = FileManager.default
+        let images = url.appendingPathComponent("images")
+        guard manager.fileExists(atPath: images.path) else { return false }
+        let sparseCandidates = [url.appendingPathComponent("sparse/0"), url.appendingPathComponent("sparse")]
+        return sparseCandidates.contains { sparse in
+            ["cameras.bin", "images.bin", "points3D.bin"].allSatisfy {
+                manager.fileExists(atPath: sparse.appendingPathComponent($0).path)
             }
         }
     }
