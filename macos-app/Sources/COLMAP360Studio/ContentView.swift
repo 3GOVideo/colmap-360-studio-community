@@ -26,7 +26,7 @@ struct ContentView: View {
             Button("Cancelar", role: .cancel) { }
             Button("Revisar e instalar") { pipeline.prepareMac() }
         } message: {
-            Text("La app revisará Python, FFmpeg y COLMAP. Si falta algo, Homebrew y Python podrán descargarlo. El avance aparecerá en el registro.")
+            Text("La app revisará e instalará Python, FFmpeg, COLMAP y el motor oficial de Brush. Brush quedará registrado para las próximas sesiones. El avance aparecerá en el registro.")
         }
         .tint(.blue)
     }
@@ -54,8 +54,13 @@ struct ContentView: View {
                             title: "Motor Brush",
                             path: pipeline.brushExecutableURL?.path ?? "No localizado"
                         )
-                        Button("Localizar Brush…") { pipeline.chooseBrush() }
-                            .disabled(pipeline.isBrushRunning || pipeline.isRunning)
+                        if pipeline.brushExecutableURL == nil {
+                            Text("Usa “Preparar Mac” para instalarlo automáticamente.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Button("Localizar Brush manualmente…") { pipeline.chooseBrush() }
+                                .disabled(pipeline.isBrushRunning || pipeline.isRunning)
+                        }
                         Link(
                             "Descargar Brush oficial ↗",
                             destination: URL(string: "https://github.com/ArthurBrussee/brush/releases/latest")!
@@ -86,14 +91,34 @@ struct ContentView: View {
                 GroupBox {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack {
+                            Text("Pasos de entrenamiento")
+                                .font(.callout.weight(.medium))
+                            Spacer()
+                            TextField("Pasos", value: $pipeline.brushTotalSteps, format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .multilineTextAlignment(.trailing)
+                                .frame(width: 105)
+                                .disabled(pipeline.isBrushRunning)
+                        }
+                        Text(pipeline.brushStepsAreValid
+                             ? "Puedes elegir entre 1.000 y 30.000 pasos."
+                             : "Introduce un valor entre 1.000 y 30.000.")
+                            .font(.caption)
+                            .foregroundStyle(pipeline.brushStepsAreValid ? Color.secondary : Color.red)
+                        HStack {
                             metricValue(pipeline.brushStep.formatted(), label: "Paso")
                             metricValue(pipeline.brushSplatCount?.formatted() ?? "—", label: "Splats")
                         }
                         ProgressView(value: pipeline.brushProgress) {
-                            Text("\(pipeline.brushStep.formatted()) / \(pipeline.brushTotalSteps.formatted())")
-                                .font(.caption.monospacedDigit())
+                            HStack {
+                                Text("\(pipeline.brushStep.formatted()) / \(pipeline.brushTotalSteps.formatted()) pasos")
+                                Spacer()
+                                Text("\(pipeline.brushProgressPercent)%")
+                                    .fontWeight(.semibold)
+                            }
+                            .font(.caption.monospacedDigit())
                         }
-                        Text("Configuración estándar de Brush 0.3: 30.000 pasos y máximo de 10 millones de splats. El visor recibe un snapshot cada 500 pasos.")
+                        Text("Brush admite hasta 10 millones de splats. SuperSplat muestra una vista inicial, otra al 50% y el resultado al 100%.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         HStack {
@@ -140,10 +165,10 @@ struct ContentView: View {
                                     .foregroundStyle(.secondary)
                                 Text("Esperando el primer snapshot")
                                     .font(.headline)
-                                Text("El Gaussian Splat aparecerá aquí mientras Brush entrena.")
+                                Text("SuperSplat mostrará el primer Gaussian Splat disponible.")
                                     .font(.callout)
                                     .foregroundStyle(.secondary)
-                                Text("Vista previa ligera de los centros de splats; el render final conserva toda la información en el PLY.")
+                                Text("La vista volverá a actualizarse al 50% y al finalizar el entrenamiento.")
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                                     .multilineTextAlignment(.center)
@@ -155,7 +180,12 @@ struct ContentView: View {
                             HStack(spacing: 8) {
                                 Label(pipeline.latestSplatURL?.lastPathComponent ?? "", systemImage: "cube.transparent")
                                 Text("·")
-                                Text("\(pipeline.previewPointCount.formatted()) puntos")
+                                Text("\(pipeline.previewPointCount.formatted()) splats")
+                                if !pipeline.previewMilestoneLabel.isEmpty {
+                                    Text("·")
+                                    Text(pipeline.previewMilestoneLabel)
+                                        .foregroundStyle(.blue)
+                                }
                             }
                             .font(.caption.monospacedDigit())
                             .padding(8)
@@ -165,11 +195,21 @@ struct ContentView: View {
                     }
                 } label: {
                     HStack {
-                        Label("Visor integrado", systemImage: "rotate.3d")
+                        Label("Visor Gaussian · SuperSplat", systemImage: "rotate.3d")
                         Spacer()
                         Text("Arrastra para orbitar · rueda para acercar")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                        Button {
+                            pipeline.openLatestSplatInBrush()
+                        } label: {
+                            Label("Abrir en Brush", systemImage: "cube.transparent")
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(pipeline.latestSplatURL == nil || pipeline.isBrushRunning)
+                        Button("Abrir PLY…") { pipeline.chooseSplatPreview() }
+                            .buttonStyle(.borderless)
+                            .disabled(pipeline.isBrushRunning)
                     }
                 }
                 .frame(maxHeight: .infinity)
@@ -318,6 +358,36 @@ struct ContentView: View {
                     .pickerStyle(.segmented)
                     .disabled(pipeline.isRunning)
                 }
+                HStack {
+                    Text("Modelo de cámara COLMAP")
+                        .frame(width: 160, alignment: .leading)
+                    if pipeline.videoType == .panorama {
+                        HStack(spacing: 8) {
+                            Image(systemName: "camera.aperture")
+                                .foregroundStyle(.blue)
+                            Text("Automático 360: SIMPLE_PINHOLE → EQUIRECTANGULAR")
+                                .lineLimit(1)
+                            Spacer()
+                        }
+                        .padding(.horizontal, 10)
+                        .frame(height: 28)
+                        .background(Color.secondary.opacity(0.10), in: RoundedRectangle(cornerRadius: 6))
+                    } else {
+                        Picker("Modelo de cámara COLMAP", selection: $pipeline.cameraModel) {
+                            ForEach(COLMAPCameraModel.allCases) { model in
+                                Text(model.rawValue).tag(model)
+                            }
+                        }
+                        .labelsHidden()
+                        .disabled(pipeline.isRunning)
+                    }
+                }
+                Text(pipeline.videoType == .panorama
+                     ? "El rig usa 12 cámaras virtuales sin distorsión; COLMAP también genera el modelo equirectangular y Brush recibe las vistas perspectiva."
+                     : "OPENCV es el valor predeterminado; elige otro modelo únicamente si corresponde al lente utilizado.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 160)
                 estimationSummary
                 Toggle(isOn: $pipeline.reconstruct) {
                     VStack(alignment: .leading, spacing: 2) {

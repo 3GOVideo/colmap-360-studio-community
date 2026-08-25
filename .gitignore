@@ -18,3 +18,4 @@ packaging/AppIcon.icns
 packaging/AppIcon.ico
 macos-app/.build/
 macos-app/.local-build-cache/
+supersplat-viewer/node_modules/

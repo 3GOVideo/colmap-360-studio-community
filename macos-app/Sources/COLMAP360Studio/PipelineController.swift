@@ -14,6 +14,28 @@ enum VideoType: String {
     }
 }
 
+enum COLMAPCameraModel: String, CaseIterable, Identifiable {
+    case simplePinhole = "SIMPLE_PINHOLE"
+    case pinhole = "PINHOLE"
+    case simpleRadial = "SIMPLE_RADIAL"
+    case simpleRadialFisheye = "SIMPLE_RADIAL_FISHEYE"
+    case radial = "RADIAL"
+    case radialFisheye = "RADIAL_FISHEYE"
+    case opencv = "OPENCV"
+    case opencvFisheye = "OPENCV_FISHEYE"
+    case fullOpenCV = "FULL_OPENCV"
+    case fov = "FOV"
+    case thinPrismFisheye = "THIN_PRISM_FISHEYE"
+    case radTanThinPrismFisheye = "RAD_TAN_THIN_PRISM_FISHEYE"
+    case simpleDivision = "SIMPLE_DIVISION"
+    case division = "DIVISION"
+    case simpleFisheye = "SIMPLE_FISHEYE"
+    case fisheye = "FISHEYE"
+    case eucm = "EUCM"
+
+    var id: String { rawValue }
+}
+
 enum DependencyState {
     case checking, ready, missing, unknown
 
@@ -82,15 +104,28 @@ private struct JobConfiguration: Equatable {
     let videoType: VideoType
     let fps: Int
     let reconstruct: Bool
+    let cameraModel: COLMAPCameraModel
 }
 
 @MainActor
 final class PipelineController: NSObject, ObservableObject {
+    private static let brushExecutablePathKey = "BrushExecutablePath"
+    private static let brushTotalStepsKey = "BrushTotalSteps"
+    static let brushMinimumSteps = 1_000
+    static let brushMaximumSteps = 30_000
+
     @Published var videoURL: URL?
     @Published var outputURL: URL = FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask).first!
     @Published var videoType: VideoType = .panorama
     @Published var fps = 2
     @Published var reconstruct = true
+    @Published var cameraModel: COLMAPCameraModel = {
+        guard let saved = UserDefaults.standard.string(forKey: "COLMAPCameraModel"),
+              let model = COLMAPCameraModel(rawValue: saved) else { return .opencv }
+        return model
+    }() {
+        didSet { UserDefaults.standard.set(cameraModel.rawValue, forKey: "COLMAPCameraModel") }
+    }
     @Published var isRunning = false
     @Published var progress = 0.0
     @Published var statusText = "Listo para comenzar"
@@ -111,9 +146,20 @@ final class PipelineController: NSObject, ObservableObject {
     @Published var brushStep = 0
     @Published var brushSplatCount: Int?
     @Published var previewPointCount = 0
+    @Published var previewMilestoneLabel = ""
     @Published var isBrushRunning = false
 
-    let brushTotalSteps = 30_000
+    @Published var brushTotalSteps: Int = {
+        let saved = UserDefaults.standard.integer(forKey: PipelineController.brushTotalStepsKey)
+        guard saved > 0 else { return PipelineController.brushMaximumSteps }
+        return min(max(saved, PipelineController.brushMinimumSteps), PipelineController.brushMaximumSteps)
+    }() {
+        didSet {
+            if brushStepsAreValid {
+                UserDefaults.standard.set(brushTotalSteps, forKey: Self.brushTotalStepsKey)
+            }
+        }
+    }
     let brushExportEvery = 500
 
     private var process: Process?
@@ -126,6 +172,8 @@ final class PipelineController: NSObject, ObservableObject {
     private var brushBufferedOutput = ""
     private var brushMonitor: Timer?
     private var brushActivityToken: NSObjectProtocol?
+    private var brushViewerProcess: Process?
+    private var shownPreviewMilestones = Set<Int>()
 
     private var currentConfiguration: JobConfiguration? {
         guard let videoURL else { return nil }
@@ -134,7 +182,8 @@ final class PipelineController: NSObject, ObservableObject {
             outputPath: outputURL.path,
             videoType: videoType,
             fps: fps,
-            reconstruct: reconstruct
+            reconstruct: reconstruct,
+            cameraModel: cameraModel
         )
     }
 
@@ -147,7 +196,15 @@ final class PipelineController: NSObject, ObservableObject {
     }
 
     var canStartBrush: Bool {
-        brushExecutableURL != nil && resolvedBrushDatasetURL != nil && !isRunning && !isBrushRunning
+        brushExecutableURL != nil && resolvedBrushDatasetURL != nil && brushStepsAreValid && !isRunning && !isBrushRunning
+    }
+
+    var brushStepsAreValid: Bool {
+        (Self.brushMinimumSteps...Self.brushMaximumSteps).contains(brushTotalSteps)
+    }
+
+    var brushProgressPercent: Int {
+        min(100, max(0, Int((brushProgress * 100).rounded())))
     }
 
     var resolvedBrushDatasetURL: URL? {
@@ -225,9 +282,7 @@ final class PipelineController: NSObject, ObservableObject {
         panel.allowsMultipleSelection = false
         if panel.runModal() == .OK, let selected = panel.url,
            let executable = resolveBrushExecutable(selected) {
-            UserDefaults.standard.set(executable.path, forKey: "BrushExecutablePath")
-            brushExecutableURL = executable
-            brushState = .ready
+            registerBrushExecutable(executable)
             appendBrushLog("Brush localizado: \(executable.path)")
         }
     }
@@ -249,7 +304,64 @@ final class PipelineController: NSObject, ObservableObject {
         }
     }
 
+    func chooseSplatPreview() {
+        let panel = NSOpenPanel()
+        panel.title = "Selecciona un snapshot PLY de Brush"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        if panel.runModal() == .OK, let url = panel.url {
+            guard url.pathExtension.lowercased() == "ply" else {
+                appendBrushLog("Selecciona un archivo con extensión .ply.")
+                return
+            }
+            latestSplatURL = url
+            previewMilestoneLabel = "PLY seleccionado"
+            if let count = plyVertexCount(url) { brushSplatCount = count }
+            appendBrushLog("Vista previa cargada: \(url.path)")
+        }
+    }
+
+    func openLatestSplatInBrush() {
+        guard !isBrushRunning else { return }
+        guard let brush = brushExecutableURL ?? findBrushExecutable() else {
+            brushState = .unavailable
+            appendBrushLog("Brush no está disponible para abrir el resultado.")
+            return
+        }
+        guard let splat = latestSplatURL, FileManager.default.fileExists(atPath: splat.path) else {
+            appendBrushLog("Todavía no hay un Gaussian Splat entrenado para abrir.")
+            return
+        }
+
+        let task = Process()
+        task.executableURL = brush
+        task.arguments = [splat.path]
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        task.environment = environment
+        task.terminationHandler = { [weak self] finished in
+            Task { @MainActor in
+                self?.brushViewerProcess = nil
+                if finished.terminationStatus != 0 {
+                    self?.appendBrushLog("El visor de Brush terminó con código \(finished.terminationStatus).")
+                }
+            }
+        }
+        do {
+            try task.run()
+            brushViewerProcess = task
+            appendBrushLog("Abriendo en Brush: \(splat.lastPathComponent)")
+        } catch {
+            appendBrushLog("No fue posible abrir Brush: \(error.localizedDescription)")
+        }
+    }
+
     func startBrushTraining() {
+        guard brushStepsAreValid else {
+            appendBrushLog("El número de pasos debe estar entre 1.000 y 30.000.")
+            return
+        }
         guard let brush = brushExecutableURL ?? findBrushExecutable() else {
             brushState = .unavailable
             appendBrushLog("Localiza Brush antes de iniciar el entrenamiento.")
@@ -280,6 +392,8 @@ final class PipelineController: NSObject, ObservableObject {
         brushOutputURL = output
         latestSplatURL = nil
         previewPointCount = 0
+        previewMilestoneLabel = ""
+        shownPreviewMilestones.removeAll()
         brushStep = 0
         brushSplatCount = nil
         brushProgress = 0
@@ -288,12 +402,13 @@ final class PipelineController: NSObject, ObservableObject {
         isBrushRunning = true
         appendBrushLog("\n— Entrenamiento Brush estándar —")
         appendBrushLog("Dataset: \(dataset.path)")
-        appendBrushLog("30.000 pasos · máximo estándar de 10 millones de splats · snapshot cada 500 pasos")
+        appendBrushLog("\(brushTotalSteps.formatted()) pasos · máximo estándar de 10 millones de splats · snapshot cada 500 pasos")
 
         let task = Process()
         let pipe = Pipe()
         task.executableURL = URL(fileURLWithPath: python)
         task.arguments = [
+            "-B",
             runner.path,
             "--brush", brush.path,
             "--dataset", dataset.path,
@@ -304,6 +419,7 @@ final class PipelineController: NSObject, ObservableObject {
         task.currentDirectoryURL = pipelineDirectory()
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        environment["PYTHONDONTWRITEBYTECODE"] = "1"
         task.environment = environment
         task.standardOutput = pipe
         task.standardError = pipe
@@ -332,7 +448,6 @@ final class PipelineController: NSObject, ObservableObject {
                 self.brushLogHandle = nil
                 self.brushMonitor?.invalidate()
                 self.brushMonitor = nil
-                self.refreshLatestSplat()
                 self.isBrushRunning = false
                 self.brushProcess = nil
                 if let token = self.brushActivityToken {
@@ -342,13 +457,16 @@ final class PipelineController: NSObject, ObservableObject {
                 if finished.terminationStatus == 0 {
                     self.brushProgress = 1
                     self.brushStep = self.brushTotalSteps
+                    self.refreshLatestSplat(forceFinal: true)
                     self.brushState = .completed
                     self.appendBrushLog("✓ Entrenamiento Brush terminado.")
                     self.notifyCompletion()
                 } else if finished.terminationStatus == 2 || finished.terminationStatus == 15 {
+                    self.refreshLatestSplat()
                     self.brushState = .ready
                     self.appendBrushLog("Entrenamiento cancelado; los snapshots existentes se conservaron.")
                 } else {
+                    self.refreshLatestSplat()
                     self.brushState = .failed
                     self.appendBrushLog("Brush terminó con código \(finished.terminationStatus). Revisa el registro.")
                 }
@@ -442,6 +560,7 @@ final class PipelineController: NSObject, ObservableObject {
         let arguments = [
             "--video", videoURL.path, "--type", videoType.rawValue,
             "--fps", String(fps), "--output", outputURL.path,
+            "--camera-model", cameraModel.rawValue,
         ] + (reconstruct ? [] : ["--frames-only"])
         progress = 0.01
         lastOutputURL = nil
@@ -464,6 +583,7 @@ final class PipelineController: NSObject, ObservableObject {
 
     private func checkDependencies() async {
         dependencyState = .checking
+        refreshBrushAvailability()
         let binariesReady = toolPath("ffmpeg") != nil && toolPath("ffprobe") != nil
         let pythonReady = pythonPath().map { path in
             let task = Process()
@@ -473,7 +593,7 @@ final class PipelineController: NSObject, ObservableObject {
             do { try task.run(); task.waitUntilExit(); return task.terminationStatus == 0 }
             catch { return false }
         } ?? false
-        dependencyState = binariesReady && pythonReady ? .ready : .missing
+        dependencyState = binariesReady && pythonReady && brushExecutableURL != nil ? .ready : .missing
     }
 
     private func runPythonScript(_ name: String, arguments: [String], action: String) {
@@ -482,7 +602,7 @@ final class PipelineController: NSObject, ObservableObject {
             dependencyState = .missing
             return
         }
-        runExecutable(python, arguments: [pipelineDirectory().appendingPathComponent(name).path] + arguments, action: action)
+        runExecutable(python, arguments: ["-B", pipelineDirectory().appendingPathComponent(name).path] + arguments, action: action)
     }
 
     private func runExecutable(_ executable: String, arguments: [String], action: String, isSetup: Bool = false) {
@@ -494,6 +614,7 @@ final class PipelineController: NSObject, ObservableObject {
         task.currentDirectoryURL = pipelineDirectory()
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        environment["PYTHONDONTWRITEBYTECODE"] = "1"
         task.environment = environment
         task.standardOutput = pipe
         task.standardError = pipe
@@ -542,7 +663,10 @@ final class PipelineController: NSObject, ObservableObject {
                         self.notifyCompletion()
                     }
                     self.appendLog(isSetup ? "✓ El Mac está listo." : "✓ Proceso completado correctamente.")
-                    if isSetup { Task { await self.checkDependencies() } }
+                    if isSetup {
+                        self.refreshBrushAvailability()
+                        Task { await self.checkDependencies() }
+                    }
                 } else {
                     self.statusText = "El proceso no terminó"
                     self.appendLog("Error: el proceso terminó con código \(finished.terminationStatus). Revisa las últimas líneas del registro.")
@@ -566,6 +690,14 @@ final class PipelineController: NSObject, ObservableObject {
         let lines = bufferedOutput.components(separatedBy: .newlines)
         bufferedOutput = lines.last ?? ""
         for line in lines.dropLast() {
+            if line.hasPrefix("::brush-path ") {
+                let path = String(line.dropFirst("::brush-path ".count))
+                if let executable = resolveBrushExecutable(URL(fileURLWithPath: path)) {
+                    registerBrushExecutable(executable)
+                    appendBrushLog("Brush instalado y registrado: \(executable.path)")
+                }
+                continue
+            }
             if line.hasPrefix("::progress ") {
                 let parts = line.split(separator: " ", maxSplits: 2)
                 if parts.count >= 2, let value = Double(parts[1]) { progress = value }
@@ -628,34 +760,53 @@ final class PipelineController: NSObject, ObservableObject {
         refreshLatestSplat()
     }
 
-    private func refreshLatestSplat() {
+    private func refreshLatestSplat(forceFinal: Bool = false) {
         guard let output = brushOutputURL,
               let contents = try? FileManager.default.contentsOfDirectory(
                 at: output,
                 includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey],
                 options: [.skipsHiddenFiles]
               ) else { return }
-        let candidates = contents.filter { $0.pathExtension.lowercased() == "ply" }
-        let latest = candidates.max { lhs, rhs in
-            let left = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-            let right = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-            return left < right
-        }
-        if let latest, latest != latestSplatURL {
-            latestSplatURL = latest
-            if let expression = try? NSRegularExpression(pattern: #"(\d+)(?=\.ply$)"#),
-               let match = expression.firstMatch(
-                in: latest.lastPathComponent,
-                range: NSRange(latest.lastPathComponent.startIndex..., in: latest.lastPathComponent)
-               ),
-               let range = Range(match.range(at: 1), in: latest.lastPathComponent),
-               let step = Int(latest.lastPathComponent[range]) {
-                brushStep = min(step, brushTotalSteps)
-                brushProgress = min(1, Double(brushStep) / Double(brushTotalSteps))
+        let candidates = contents
+            .filter { $0.pathExtension.lowercased() == "ply" }
+            .compactMap { url -> (url: URL, step: Int)? in
+                guard let step = splatStep(url) else { return nil }
+                return (url, step)
             }
-            if let count = plyVertexCount(latest) { brushSplatCount = count }
-            appendBrushLog("Visor actualizado: \(latest.lastPathComponent)")
+            .sorted { $0.step < $1.step }
+        guard let first = candidates.first, let latest = candidates.last else { return }
+
+        brushStep = min(latest.step, brushTotalSteps)
+        brushProgress = min(1, Double(brushStep) / Double(brushTotalSteps))
+        if let count = plyVertexCount(latest.url) { brushSplatCount = count }
+
+        var preview: (url: URL, step: Int, milestone: Int, label: String)?
+        if !shownPreviewMilestones.contains(100), (latest.step >= brushTotalSteps || forceFinal) {
+            preview = (latest.url, latest.step, 100, "Entrenamiento terminado")
+        } else if !shownPreviewMilestones.contains(0) {
+            preview = (first.url, first.step, 0, "Vista inicial")
+        } else if !shownPreviewMilestones.contains(50), latest.step >= brushTotalSteps / 2 {
+            let midpoint = candidates.first(where: { $0.step >= brushTotalSteps / 2 }) ?? latest
+            preview = (midpoint.url, midpoint.step, 50, "50% del entrenamiento")
         }
+
+        if let preview {
+            shownPreviewMilestones.insert(preview.milestone)
+            latestSplatURL = preview.url
+            previewMilestoneLabel = preview.label
+            if let count = plyVertexCount(preview.url) { previewPointCount = count }
+            appendBrushLog("Visor SuperSplat actualizado (\(preview.label)): \(preview.url.lastPathComponent)")
+        }
+    }
+
+    private func splatStep(_ url: URL) -> Int? {
+        guard let expression = try? NSRegularExpression(pattern: #"(\d+)(?=\.ply$)"#),
+              let match = expression.firstMatch(
+                in: url.lastPathComponent,
+                range: NSRange(url.lastPathComponent.startIndex..., in: url.lastPathComponent)
+              ),
+              let range = Range(match.range(at: 1), in: url.lastPathComponent) else { return nil }
+        return Int(url.lastPathComponent[range])
     }
 
     private func plyVertexCount(_ url: URL) -> Int? {
@@ -679,7 +830,16 @@ final class PipelineController: NSObject, ObservableObject {
 
     private func refreshBrushAvailability() {
         brushExecutableURL = findBrushExecutable()
+        if let brushExecutableURL {
+            UserDefaults.standard.set(brushExecutableURL.path, forKey: Self.brushExecutablePathKey)
+        }
         brushState = brushExecutableURL == nil ? .unavailable : .ready
+    }
+
+    private func registerBrushExecutable(_ executable: URL) {
+        UserDefaults.standard.set(executable.path, forKey: Self.brushExecutablePathKey)
+        brushExecutableURL = executable
+        brushState = .ready
     }
 
     private func findBrushExecutable() -> URL? {
@@ -687,7 +847,7 @@ final class PipelineController: NSObject, ObservableObject {
         if let configured = ProcessInfo.processInfo.environment["BRUSH_PATH"], !configured.isEmpty {
             candidates.append(URL(fileURLWithPath: configured))
         }
-        if let saved = UserDefaults.standard.string(forKey: "BrushExecutablePath"), !saved.isEmpty {
+        if let saved = UserDefaults.standard.string(forKey: Self.brushExecutablePathKey), !saved.isEmpty {
             candidates.append(URL(fileURLWithPath: saved))
         }
         let home = FileManager.default.homeDirectoryForCurrentUser
@@ -697,6 +857,7 @@ final class PipelineController: NSObject, ObservableObject {
             URL(fileURLWithPath: "/Applications/brush-app.app"),
             home.appendingPathComponent("Applications/Brush.app"),
             home.appendingPathComponent("Applications/brush-app.app"),
+            appSupportDirectory().appendingPathComponent("Brush/brush_app"),
             home.appendingPathComponent("Downloads/brush-app-aarch64-apple-darwin/brush_app"),
             productRoot.appendingPathComponent("Brush/brush-app-aarch64-apple-darwin/brush_app"),
             URL(fileURLWithPath: "/opt/homebrew/bin/brush_app"),

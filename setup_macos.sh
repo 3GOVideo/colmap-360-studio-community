@@ -43,4 +43,32 @@ echo "Instalando o actualizando los componentes Python…"
 "$VENV_DIR/bin/python" -m pip install --upgrade pip
 "$VENV_DIR/bin/python" -m pip install -r "$SCRIPT_DIR/requirements.txt"
 "$VENV_DIR/bin/python" -c 'import tkinter, pycolmap, cv2, PIL, scipy, tqdm; print("✓ Interfaz, PyCOLMAP", pycolmap.__version__, "y OpenCV están listos.")'
+
+SUPPORT_DIR="$(dirname "$VENV_DIR")"
+BRUSH_DIR="$SUPPORT_DIR/Brush"
+BRUSH_BIN="$BRUSH_DIR/brush_app"
+
+if [[ ! -x "$BRUSH_BIN" ]]; then
+  if [[ "$(uname -m)" != "arm64" ]]; then
+    echo "Brush oficial no ofrece actualmente un binario precompilado para este Mac Intel." >&2
+    echo "Descárgalo manualmente desde https://github.com/ArthurBrussee/brush/releases/latest" >&2
+    exit 1
+  fi
+
+  echo "Instalando Brush oficial para Apple Silicon…"
+  BRUSH_TEMP="$(mktemp -d)"
+  trap 'rm -rf "$BRUSH_TEMP"' EXIT
+  curl --fail --location --retry 3 \
+    "https://github.com/ArthurBrussee/brush/releases/latest/download/brush-app-aarch64-apple-darwin.tar.xz" \
+    --output "$BRUSH_TEMP/brush.tar.xz"
+  tar -xJf "$BRUSH_TEMP/brush.tar.xz" -C "$BRUSH_TEMP"
+  DOWNLOADED_BRUSH="$(find "$BRUSH_TEMP" -type f -name brush_app -perm -111 -print -quit)"
+  [[ -n "$DOWNLOADED_BRUSH" ]] || { echo "La descarga oficial no contenía brush_app." >&2; exit 1; }
+  mkdir -p "$BRUSH_DIR"
+  install -m 755 "$DOWNLOADED_BRUSH" "$BRUSH_BIN"
+else
+  echo "✓ Brush ya está instalado para COLMAP 360 Studio."
+fi
+
+echo "::brush-path $BRUSH_BIN"
 echo "Preparación terminada."

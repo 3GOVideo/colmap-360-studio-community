@@ -12,6 +12,12 @@ from runtime_support import ffmpeg_executable, is_frozen, probe_video, worker_co
 
 
 PROJECT_DIR = Path(__file__).resolve().parent
+CAMERA_MODELS = (
+    "SIMPLE_PINHOLE", "PINHOLE", "SIMPLE_RADIAL", "SIMPLE_RADIAL_FISHEYE",
+    "RADIAL", "RADIAL_FISHEYE", "OPENCV", "OPENCV_FISHEYE", "FULL_OPENCV",
+    "FOV", "THIN_PRISM_FISHEYE", "RAD_TAN_THIN_PRISM_FISHEYE",
+    "SIMPLE_DIVISION", "DIVISION", "SIMPLE_FISHEYE", "FISHEYE", "EUCM",
+)
 
 
 def emit_progress(value: float, message: str) -> None:
@@ -37,6 +43,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--type", required=True, choices=("360", "flat"))
     parser.add_argument("--fps", required=True, type=int, choices=(1, 2, 5, 10))
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--camera-model", choices=CAMERA_MODELS, default="OPENCV")
     parser.add_argument("--frames-only", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
@@ -107,7 +114,11 @@ def main() -> int:
         command = worker_command(
             "--reconstruct-flat-worker",
             program,
-            ["--images", str(frames), "--output", str(reconstruction)],
+            [
+                "--images", str(frames),
+                "--output", str(reconstruction),
+                "--camera-model", args.camera_model,
+            ],
         )
     if not is_frozen() and not program.is_file():
         raise RuntimeError(f"Falta el motor de reconstrucción: {program.name}")

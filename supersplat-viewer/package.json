@@ -1,0 +1,8 @@
+{
+  "name": "colmap360-supersplat-viewer",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@playcanvas/supersplat-viewer": "1.28.0"
+  }
+}
