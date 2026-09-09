@@ -22,6 +22,7 @@ from system_check import BRUSH_DOWNLOAD_URL, ToolStatus, inspect_system, require
 PROJECT_DIR = Path(__file__).resolve().parent
 VIDEO_TYPES = (("360° equirectangular", "360"), ("Plano / convencional", "flat"))
 FPS_VALUES = (1, 2, 5, 10)
+_RESTORED_WINDOWS_STREAMS: dict[int, object] = {}
 
 
 def format_clock(seconds: float) -> str:
@@ -448,6 +449,40 @@ def main() -> int:
     return 0
 
 
+def restore_packaged_stream(name: str, windows_handle_id: int) -> None:
+    """Expose a redirected Win32 standard handle as a Python text stream."""
+    if getattr(sys, name) is not None:
+        return
+    if platform.system() == "Windows":
+        try:
+            import ctypes
+            import msvcrt
+
+            get_std_handle = ctypes.windll.kernel32.GetStdHandle
+            get_std_handle.argtypes = [ctypes.c_ulong]
+            get_std_handle.restype = ctypes.c_void_p
+            handle = get_std_handle(windows_handle_id)
+            invalid_handle = ctypes.c_void_p(-1).value
+            if handle not in (None, 0, invalid_handle):
+                if handle in _RESTORED_WINDOWS_STREAMS:
+                    setattr(sys, name, _RESTORED_WINDOWS_STREAMS[handle])
+                    return
+                descriptor = msvcrt.open_osfhandle(handle, os.O_WRONLY)
+                stream = os.fdopen(
+                    descriptor,
+                    "w",
+                    buffering=1,
+                    encoding="utf-8",
+                    errors="replace",
+                )
+                _RESTORED_WINDOWS_STREAMS[handle] = stream
+                setattr(sys, name, stream)
+                return
+        except (OSError, ValueError):
+            pass
+    setattr(sys, name, open(os.devnull, "w", encoding="utf-8"))
+
+
 def run_packaged_worker() -> int | None:
     if len(sys.argv) < 2:
         return None
@@ -459,12 +494,10 @@ def run_packaged_worker() -> int | None:
         "--panorama-worker",
     }:
         return None
-    # Windowed PyInstaller builds may not initialize text streams. Popen still
-    # supplies file descriptors 1 and 2, so wrap them for live progress logs.
-    if sys.stdout is None:
-        sys.stdout = os.fdopen(os.dup(1), "w", buffering=1)
-    if sys.stderr is None:
-        sys.stderr = os.fdopen(os.dup(2), "w", buffering=1)
+    # Windowed PyInstaller builds leave Python's streams unset even when the
+    # parent redirects the underlying Win32 handles to a pipe.
+    restore_packaged_stream("stdout", -11)  # STD_OUTPUT_HANDLE
+    restore_packaged_stream("stderr", -12)  # STD_ERROR_HANDLE
     sys.argv = [worker, *sys.argv[2:]]
     if worker == "--pipeline-worker":
         from process_video import main as worker_main
