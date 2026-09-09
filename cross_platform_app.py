@@ -16,7 +16,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from runtime_support import is_frozen, probe_video
-from system_check import BRUSH_DOWNLOAD_URL, ToolStatus, inspect_system, required_tools_ready
+from system_check import (
+    BRUSH_DOWNLOAD_URL,
+    ToolStatus,
+    inspect_system,
+    required_tools_ready,
+    save_brush_path,
+)
 
 
 PROJECT_DIR = Path(__file__).resolve().parent
@@ -311,8 +317,16 @@ class CommunityApp:
             filetypes=[("Aplicaciones y ejecutables", "*.app *.exe"), ("Todos los archivos", "*.*")],
         )
         if path:
+            try:
+                save_brush_path(path)
+            except OSError as error:
+                messagebox.showerror(
+                    "No se pudo guardar Brush",
+                    f"La ubicación seleccionada no pudo guardarse:\n{error}",
+                )
+                return
             os.environ["BRUSH_PATH"] = path
-            self.append_log(f"Brush seleccionado: {path}")
+            self.append_log(f"Brush seleccionado y guardado: {path}")
             self.refresh_system()
 
     def _set_controls(self) -> None:

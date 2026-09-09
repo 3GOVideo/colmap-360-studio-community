@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import platform
 import shutil
@@ -15,6 +16,7 @@ from runtime_support import ffmpeg_executable, is_frozen
 
 
 BRUSH_DOWNLOAD_URL = "https://github.com/ArthurBrussee/brush/releases/latest"
+SETTINGS_DIRECTORY = "COLMAP 360 Studio Community"
 
 
 @dataclass(frozen=True)
@@ -47,14 +49,55 @@ def find_executable(*names: str) -> str | None:
     return None
 
 
+def settings_path() -> Path:
+    system = platform.system()
+    home = Path.home()
+    if system == "Windows":
+        base = Path(os.environ.get("LOCALAPPDATA") or home / "AppData/Local")
+    elif system == "Darwin":
+        base = home / "Library/Application Support"
+    else:
+        base = Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config")
+    return base / SETTINGS_DIRECTORY / "settings.json"
+
+
+def saved_brush_path() -> str | None:
+    try:
+        data = json.loads(settings_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return None
+    value = data.get("brush_path") if isinstance(data, dict) else None
+    return value if isinstance(value, str) and value else None
+
+
+def save_brush_path(path: str | Path) -> None:
+    destination = settings_path()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    data: dict[str, object] = {}
+    try:
+        existing = json.loads(destination.read_text(encoding="utf-8"))
+        if isinstance(existing, dict):
+            data.update(existing)
+    except (OSError, ValueError, TypeError):
+        pass
+    data["brush_path"] = str(Path(path).expanduser().resolve())
+    temporary = destination.with_suffix(".tmp")
+    temporary.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    temporary.replace(destination)
+
+
 def find_brush() -> str | None:
     """Find the official Brush desktop/CLI binary without scanning the disk."""
-    configured = os.environ.get("BRUSH_PATH")
+    configured = os.environ.get("BRUSH_PATH") or saved_brush_path()
     if configured:
         found = _first_existing([Path(configured).expanduser()])
         if found:
             return str(found)
-    command = find_executable("brush", "brush-app", "brush.exe", "brush-app.exe")
+    command = find_executable(
+        "brush", "brush-app", "brush_app", "brush.exe", "brush-app.exe", "brush_app.exe"
+    )
     if command:
         return command
 
@@ -85,10 +128,13 @@ def find_brush() -> str | None:
         relative = [
             Path("Brush/brush.exe"),
             Path("Brush/brush-app.exe"),
+            Path("Brush/brush_app.exe"),
             Path("Programs/Brush/brush.exe"),
             Path("Programs/Brush/brush-app.exe"),
+            Path("Programs/Brush/brush_app.exe"),
             Path("brush-app-x86_64-pc-windows-msvc/brush.exe"),
             Path("brush-app-x86_64-pc-windows-msvc/brush-app.exe"),
+            Path("brush-app-x86_64-pc-windows-msvc/brush_app.exe"),
         ]
         candidates.extend(root / item for root in roots if str(root) for item in relative)
     else:
