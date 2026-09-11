@@ -10,6 +10,8 @@ from pathlib import Path
 import cv2
 import pycolmap
 
+from gpu_support import extraction_options, matching_options, run_with_fallback, select_backend
+
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp"}
 
@@ -49,6 +51,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--images", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--matcher", choices=("sequential", "exhaustive"), default="sequential")
+    parser.add_argument("--compute", choices=("auto", "cuda", "cpu"), default="auto")
+    parser.add_argument("--gpu-index", default="0")
     return parser.parse_args()
 
 
@@ -74,11 +78,21 @@ def main() -> int:
     database = output / "database.db"
     sparse = output / "sparse"
     sparse.mkdir()
-    pycolmap.extract_features(database, images_dir, camera_mode=pycolmap.CameraMode.SINGLE)
-    if args.matcher == "sequential":
-        pycolmap.match_sequential(database)
-    else:
-        pycolmap.match_exhaustive(database)
+    backend = select_backend(args.compute, args.gpu_index)
+    run_with_fallback(
+        "extracción de características",
+        backend,
+        lambda selected: pycolmap.extract_features(
+            database, images_dir, camera_mode=pycolmap.CameraMode.SINGLE,
+            extraction_options=extraction_options(selected), device=selected.device,
+        ),
+    )
+    def match(selected):
+        options = matching_options(selected)
+        if args.matcher == "sequential":
+            return pycolmap.match_sequential(database, matching_options=options, device=selected.device)
+        return pycolmap.match_exhaustive(database, matching_options=options, device=selected.device)
+    run_with_fallback("matching", backend, match)
     models = pycolmap.incremental_mapping(database, images_dir, sparse)
     best = choose_best(models)
 

@@ -11,6 +11,7 @@ import shutil
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Callable
 
 from runtime_support import ffmpeg_executable, is_frozen
 
@@ -174,21 +175,53 @@ def pycolmap_status() -> ToolStatus:
             sys.executable,
             "Faltan: " + ", ".join(missing),
         )
-    return ToolStatus("PyCOLMAP", True, sys.executable, "OpenCV, Pillow, SciPy y tqdm incluidos")
+    try:
+        import pycolmap
+    except Exception as error:
+        return ToolStatus(
+            "PyCOLMAP",
+            False,
+            sys.executable,
+            f"No se pudo cargar: {error}",
+        )
+
+    cuda_value = getattr(pycolmap, "has_cuda", False)
+    cuda_ready = bool(cuda_value() if callable(cuda_value) else cuda_value)
+    backend = "CUDA disponible" if cuda_ready else "CPU"
+    return ToolStatus("PyCOLMAP", True, sys.executable, f"{backend} · OpenCV, Pillow, SciPy y tqdm incluidos")
 
 
-def inspect_system() -> list[ToolStatus]:
+def inspect_system(progress: Callable[[str], None] | None = None) -> list[ToolStatus]:
+    def report(message: str) -> None:
+        if progress is not None:
+            progress(message)
+
+    report("Comprobando Python…")
+    python_detail = platform.python_version() + (" · incluido en la app" if is_frozen() else "")
+    python_status = ToolStatus(
+        "Python", sys.version_info >= (3, 11), sys.executable, python_detail
+    )
+
+    report("Cargando PyCOLMAP y las DLL de CUDA…")
+    pycolmap = pycolmap_status()
+
+    report("Buscando FFmpeg…")
     try:
         ffmpeg = ffmpeg_executable()
     except RuntimeError:
         ffmpeg = None
+
+    report("Comprobando el motor COLMAP…")
     colmap = find_executable("colmap")
-    brush = find_brush()
     pycolmap_ready = importlib.util.find_spec("pycolmap") is not None
-    python_detail = platform.python_version() + (" · incluido en la app" if is_frozen() else "")
+
+    report("Buscando Brush…")
+    brush = find_brush()
+
+    report("Finalizando comprobación…")
     return [
-        ToolStatus("Python", sys.version_info >= (3, 11), sys.executable, python_detail),
-        pycolmap_status(),
+        python_status,
+        pycolmap,
         ToolStatus("FFmpeg", bool(ffmpeg), ffmpeg or "", "Incluido y listo" if ffmpeg else "No encontrado"),
         ToolStatus(
             "COLMAP",

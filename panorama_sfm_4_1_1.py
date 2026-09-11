@@ -34,6 +34,8 @@ from tqdm import tqdm
 import pycolmap
 from pycolmap import logging
 
+from gpu_support import extraction_options, matching_options as make_matching_options, run_with_fallback, select_backend
+
 
 class Matcher(enum.StrEnum):
     SEQUENTIAL = enum.auto()
@@ -459,26 +461,27 @@ def run_matcher(
     database_path: Path,
     matching_options: pycolmap.FeatureMatchingOptions,
 ) -> None:
-    if args.matcher == "sequential":
-        pycolmap.match_sequential(
-            database_path,
-            pairing_options=pycolmap.SequentialPairingOptions(
-                loop_detection=True
-            ),
-            matching_options=matching_options,
-        )
-    elif args.matcher == "exhaustive":
-        pycolmap.match_exhaustive(
-            database_path, matching_options=matching_options
-        )
-    elif args.matcher == "vocabtree":
-        pycolmap.match_vocabtree(
-            database_path, matching_options=matching_options
-        )
-    elif args.matcher == "spatial":
-        pycolmap.match_spatial(database_path, matching_options=matching_options)
-    else:
+    backend = args.compute_backend
+
+    def execute(selected):
+        matching_options.use_gpu = selected.use_gpu
+        matching_options.gpu_index = selected.gpu_index
+        kwargs = {"matching_options": matching_options, "device": selected.device}
+        if args.matcher == "sequential":
+            return pycolmap.match_sequential(
+                database_path,
+                pairing_options=pycolmap.SequentialPairingOptions(loop_detection=True),
+                **kwargs,
+            )
+        if args.matcher == "exhaustive":
+            return pycolmap.match_exhaustive(database_path, **kwargs)
+        if args.matcher == "vocabtree":
+            return pycolmap.match_vocabtree(database_path, **kwargs)
+        if args.matcher == "spatial":
+            return pycolmap.match_spatial(database_path, **kwargs)
         logging.fatal(f"Unknown matcher: {args.matcher}")
+
+    run_with_fallback("matching", backend, execute)
 
 
 def run_spherical(
@@ -490,11 +493,14 @@ def run_spherical(
     logging.info("Reconstructing with spherical camera")
 
     reader_options = pycolmap.ImageReaderOptions(camera_model="EQUIRECTANGULAR")
-    pycolmap.extract_features(
-        database_path,
-        args.input_image_path,
-        reader_options=reader_options,
-        camera_mode=pycolmap.CameraMode.SINGLE,
+    run_with_fallback(
+        "extracción de características",
+        args.compute_backend,
+        lambda selected: pycolmap.extract_features(
+            database_path, args.input_image_path, reader_options=reader_options,
+            camera_mode=pycolmap.CameraMode.SINGLE,
+            extraction_options=extraction_options(selected), device=selected.device,
+        ),
     )
 
     # A single EQUIRECTANGULAR camera observes the whole sphere from one
@@ -544,21 +550,25 @@ def run_perspective(
 
     rendered_camera = rig_config.cameras[0].camera
     assert rendered_camera is not None  # Make mypy happy.
-    pycolmap.extract_features(
-        database_path,
-        image_dir,
-        reader_options=pycolmap.ImageReaderOptions(
-            mask_path=mask_dir,
-            camera_model=rendered_camera.model_name,
-            camera_params=rendered_camera.params_to_string(),
+    reader_options = pycolmap.ImageReaderOptions(
+        mask_path=mask_dir,
+        camera_model=rendered_camera.model_name,
+        camera_params=rendered_camera.params_to_string(),
+    )
+    run_with_fallback(
+        "extracción de características",
+        args.compute_backend,
+        lambda selected: pycolmap.extract_features(
+            database_path, image_dir, reader_options=reader_options,
+            camera_mode=pycolmap.CameraMode.PER_FOLDER,
+            extraction_options=extraction_options(selected), device=selected.device,
         ),
-        camera_mode=pycolmap.CameraMode.PER_FOLDER,
     )
 
     with pycolmap.Database.open(database_path) as db:
         pycolmap.apply_rig_config([rig_config], db)
 
-    matching_options = pycolmap.FeatureMatchingOptions()
+    matching_options = make_matching_options(args.compute_backend)
     # We have perfect sensor_from_rig poses (except for potential stitching
     # artifacts by the spherical image provider), so we can perform geometric
     # verification using rig constraints.
@@ -606,6 +616,7 @@ def run_perspective(
 
 def run(args: argparse.Namespace) -> None:
     pycolmap.set_random_seed(0)
+    args.compute_backend = select_backend(args.compute, args.gpu_index)
 
     database_path = args.output_path / "database.db"
     if database_path.exists():
@@ -624,6 +635,8 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input_image_path", type=Path, required=True)
     parser.add_argument("--output_path", type=Path, required=True)
+    parser.add_argument("--compute", choices=("auto", "cuda", "cpu"), default="auto")
+    parser.add_argument("--gpu-index", default="0")
     parser.add_argument(
         "--matcher",
         type=Matcher,

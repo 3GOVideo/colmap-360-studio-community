@@ -103,6 +103,8 @@ def pyinstaller(icon: Path) -> None:
         "panorama_sfm_4_1_1",
         "--hidden-import",
         "runtime_support",
+        "--hidden-import",
+        "gpu_support",
         "--add-data",
         f"{ROOT / 'INSTALL_COMMUNITY.txt'}{separator}.",
         str(ROOT / "cross_platform_app.py"),
@@ -139,11 +141,23 @@ def build_macos_dmg() -> Path:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--platform", choices=("macos", "windows"), required=True)
+    parser.add_argument("--variant", choices=("cpu", "nvidia-cuda"), default="cpu")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
+    if args.variant == "nvidia-cuda":
+        if args.platform != "windows":
+            raise RuntimeError("The nvidia-cuda variant is currently Windows-only.")
+        import pycolmap
+
+        cuda_value = getattr(pycolmap, "has_cuda", False)
+        cuda_ready = bool(cuda_value() if callable(cuda_value) else cuda_value)
+        if not cuda_ready:
+            raise RuntimeError(
+                "The nvidia-cuda build requires requirements-windows-cuda.txt."
+            )
     reset_build_directories()
     icon = create_macos_icon() if args.platform == "macos" else create_windows_icon()
     pyinstaller(icon)
@@ -154,7 +168,7 @@ def main() -> int:
         executable = DIST / APP_NAME / f"{APP_NAME}.exe"
         if not executable.is_file():
             raise RuntimeError(f"PyInstaller did not create {executable}")
-        print(f"Windows application ready: {executable}")
+        print(f"Windows application ready ({args.variant}): {executable}")
         print("Run Inno Setup with packaging/windows-installer.iss to create the installer.")
     return 0
 

@@ -8,7 +8,7 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
-from runtime_support import ffmpeg_executable, is_frozen, probe_video, worker_command
+from runtime_support import ffmpeg_executable, is_frozen, probe_video, run_relayed, worker_command
 
 
 PROJECT_DIR = Path(__file__).resolve().parent
@@ -20,7 +20,7 @@ def emit_progress(value: float, message: str) -> None:
 
 def run(command: list[str]) -> None:
     print("$ " + subprocess.list2cmdline(command), flush=True)
-    subprocess.run(command, check=True)
+    run_relayed(command)
 
 
 def unique_job_dir(output: Path, stem: str, kind: str, fps: int) -> Path:
@@ -37,6 +37,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--type", required=True, choices=("360", "flat"))
     parser.add_argument("--fps", required=True, type=int, choices=(1, 2, 5, 10))
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--compute", choices=("auto", "cuda", "cpu"), default="auto")
+    parser.add_argument("--gpu-index", default="0")
     parser.add_argument("--frames-only", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
@@ -99,7 +101,7 @@ def main() -> int:
         command = worker_command(
             "--reconstruct-360-worker",
             program,
-            ["--images", str(frames), "--output", str(reconstruction)],
+            ["--images", str(frames), "--output", str(reconstruction), "--compute", args.compute, "--gpu-index", args.gpu_index],
         )
     else:
         emit_progress(0.28, "Analizando nitidez y características visuales")
@@ -107,7 +109,7 @@ def main() -> int:
         command = worker_command(
             "--reconstruct-flat-worker",
             program,
-            ["--images", str(frames), "--output", str(reconstruction)],
+            ["--images", str(frames), "--output", str(reconstruction), "--compute", args.compute, "--gpu-index", args.gpu_index],
         )
     if not is_frozen() and not program.is_file():
         raise RuntimeError(f"Falta el motor de reconstrucción: {program.name}")

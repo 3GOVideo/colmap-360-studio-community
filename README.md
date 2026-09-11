@@ -63,6 +63,36 @@ the remaining pipeline modules. End users do not need to install those
 dependencies. Brush remains a separate download and is linked from the app's
 **System configuration** section.
 
+### NVIDIA CUDA edition for Windows
+
+The NVIDIA branch adds a dedicated Windows build with CUDA-enabled PyCOLMAP.
+The interface offers **Automatic / GPU / CPU** selection. Automatic mode uses
+CUDA when the packaged backend and an NVIDIA GPU are available, and retries on
+CPU if a CUDA operation fails.
+
+CUDA accelerates the feature-heavy parts of reconstruction: SIFT feature
+extraction and feature matching. These stages compare large numbers of image
+features and parallelize well across NVIDIA CUDA cores, so the GPU can reduce
+the most repetitive compute work and leave the CPU available for the parts of
+COLMAP that remain CPU-bound. Incremental mapping, image preparation and some
+optimization stages are not claimed as GPU-accelerated; total speed-up depends
+on image count, resolution, overlap, VRAM and scene complexity.
+
+The current Windows package targets CUDA 12.8 and has been functionally tested
+on an NVIDIA GeForce RTX 5080 16 GB: PyCOLMAP reported CUDA support and created
+both the SIFT GPU extractor and GPU matcher on device 0. This is a functional
+validation, not a benchmark; reproducible CPU-versus-GPU timing remains a
+separate release criterion. See
+[`docs/CUDA_WINDOWS_BUILD_SPEC.md`](docs/CUDA_WINDOWS_BUILD_SPEC.md) for the
+build, validation and fallback design.
+
+Build this variant with a Python 3.12 environment prepared from
+`requirements-windows-cuda.txt`:
+
+```powershell
+python packaging/build_desktop.py --platform windows --variant nvidia-cuda
+```
+
 - macOS artifact: `COLMAP-360-Studio-Community-macOS.dmg`
 - Windows artifact: `COLMAP-360-Studio-Community-Windows-v0.2.1.zip` (extract
   the complete folder, then launch `COLMAP 360 Studio Community.exe`)

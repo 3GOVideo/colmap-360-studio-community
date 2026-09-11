@@ -10,6 +10,7 @@ import queue
 import subprocess
 import sys
 import threading
+import traceback
 import webbrowser
 from pathlib import Path
 import tkinter as tk
@@ -62,12 +63,14 @@ class CommunityApp:
         self.fps = tk.IntVar(value=2)
         self.output_path = tk.StringVar(value=str(Path.home() / "Movies" if platform.system() == "Darwin" else Path.home() / "Videos"))
         self.reconstruct = tk.BooleanVar(value=True)
+        self.compute = tk.StringVar(value="auto")
         self.estimate_frames = tk.StringVar(value="—")
         self.estimate_views = tk.StringVar(value="—")
         self.estimate_time = tk.StringVar(value="—")
         self.progress_text = tk.StringVar(value="Listo para comenzar")
         self.progress_value = tk.DoubleVar(value=0)
         self.system_summary = tk.StringVar(value="Comprobando este equipo…")
+        self.system_detail = tk.StringVar(value="Iniciando comprobación…")
         self.video_info = {"width": 0, "height": 0, "duration": 0.0}
         self.statuses: list[ToolStatus] = []
         self.process: subprocess.Popen[str] | None = None
@@ -81,6 +84,7 @@ class CommunityApp:
         self.fps.trace_add("write", lambda *_: self.update_estimate())
         self.video_type.trace_add("write", lambda *_: self.update_estimate())
         self.reconstruct.trace_add("write", lambda *_: self.update_estimate())
+        self.compute.trace_add("write", lambda *_: self._set_controls())
         self.root.after(100, self._drain_messages)
         self.refresh_system()
         if len(sys.argv) > 1:
@@ -115,6 +119,11 @@ class CommunityApp:
         ttk.Label(header, text="De video a dataset para Gaussian Splat · proyecto comunitario no oficial", style="Subtitle.TLabel").grid(row=1, column=0, sticky="w", pady=(2, 0))
         ttk.Label(header, textvariable=self.system_summary).grid(row=0, column=1, sticky="e")
         ttk.Button(header, text="↻ Comprobar", command=self.refresh_system).grid(row=1, column=1, sticky="e", pady=(4, 0))
+        self.system_progress = ttk.Progressbar(header, mode="indeterminate", length=220)
+        self.system_progress.grid(row=2, column=1, sticky="e", pady=(6, 0))
+        ttk.Label(header, textvariable=self.system_detail, style="Subtitle.TLabel").grid(
+            row=2, column=0, sticky="w", pady=(6, 0)
+        )
 
         self.tools_frame = ttk.Frame(root, padding=(22, 0, 22, 8))
         self.tools_frame.grid(row=1, column=0, sticky="ew")
@@ -154,7 +163,12 @@ class CommunityApp:
         self._metric(metrics, 0, self.estimate_frames, "Fotogramas")
         self._metric(metrics, 1, self.estimate_views, "Vistas virtuales 360°")
         self._metric(metrics, 2, self.estimate_time, "Duración aproximada")
-        ttk.Checkbutton(processing, text="Reconstruir con COLMAP y preparar para Brush", variable=self.reconstruct).grid(row=3, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        compute_frame = ttk.Frame(processing)
+        compute_frame.grid(row=3, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        ttk.Label(compute_frame, text="Aceleración").pack(side="left", padx=(0, 14))
+        for label, value in (("Automático", "auto"), ("GPU", "cuda"), ("CPU", "cpu")):
+            ttk.Radiobutton(compute_frame, text=label, value=value, variable=self.compute).pack(side="left", padx=(0, 14))
+        ttk.Checkbutton(processing, text="Reconstruir con COLMAP y preparar para Brush", variable=self.reconstruct).grid(row=4, column=0, columnspan=2, sticky="w", pady=(6, 0))
 
         ttk.Label(content, text="3. Carpeta de resultados", style="Section.TLabel").grid(row=4, column=0, sticky="w", pady=(14, 6))
         output_box = ttk.Frame(content, padding=10, relief="groove")
@@ -201,7 +215,7 @@ class CommunityApp:
         ttk.Label(box, text=label, style="Subtitle.TLabel").pack(anchor="w")
 
     def _signature(self) -> tuple[object, ...]:
-        return (self.video_path.get(), self.video_type.get(), self.fps.get(), self.output_path.get(), self.reconstruct.get())
+        return (self.video_path.get(), self.video_type.get(), self.fps.get(), self.output_path.get(), self.reconstruct.get(), self.compute.get())
 
     def append_log(self, text: str) -> None:
         self.log.configure(state="normal")
@@ -211,9 +225,23 @@ class CommunityApp:
 
     def refresh_system(self) -> None:
         self.system_summary.set("Comprobando este equipo…")
-        threading.Thread(target=lambda: self.messages.put(("statuses", inspect_system())), daemon=True).start()
+        self.system_detail.set("Iniciando comprobación…")
+        self.system_progress.start(12)
+        def inspect_in_background() -> None:
+            try:
+                statuses = inspect_system(
+                    lambda step: self.messages.put(("system_progress", step))
+                )
+                self.messages.put(("statuses", statuses))
+            except Exception as error:
+                self.messages.put(("status_error", f"{type(error).__name__}: {error}"))
+
+        threading.Thread(target=inspect_in_background, daemon=True).start()
 
     def _show_statuses(self, statuses: list[ToolStatus]) -> None:
+        self.system_progress.stop()
+        self.system_progress.configure(value=0)
+        self.system_detail.set("Comprobación terminada")
         self.statuses = statuses
         for child in self.tools_frame.winfo_children():
             child.destroy()
@@ -348,7 +376,7 @@ class CommunityApp:
         if self.video_type.get() == "360" and self.video_info["width"] != self.video_info["height"] * 2:
             if not messagebox.askyesno("El video no parece 360°", "La proporción no es 2:1. ¿Quieres procesarlo como panorama de todas formas?"):
                 return
-        pipeline_arguments = ["--video", str(video), "--type", self.video_type.get(), "--fps", str(self.fps.get()), "--output", self.output_path.get()]
+        pipeline_arguments = ["--video", str(video), "--type", self.video_type.get(), "--fps", str(self.fps.get()), "--output", self.output_path.get(), "--compute", self.compute.get(), "--gpu-index", "0"]
         if not self.reconstruct.get():
             pipeline_arguments.append("--frames-only")
         if is_frozen():
@@ -435,6 +463,15 @@ class CommunityApp:
                 kind, payload = self.messages.get_nowait()
                 if kind == "statuses":
                     self._show_statuses(payload)  # type: ignore[arg-type]
+                elif kind == "system_progress":
+                    self.system_detail.set(str(payload))
+                elif kind == "status_error":
+                    self.system_progress.stop()
+                    self.system_progress.configure(value=0)
+                    self.system_summary.set("No se pudo comprobar el equipo")
+                    self.system_detail.set("Consulta el registro para ver el error")
+                    self.append_log(f"Error comprobando dependencias: {payload}")
+                    self._set_controls()
                 elif kind == "probe":
                     self._apply_probe(payload)  # type: ignore[arg-type]
                 elif kind == "probe_error":
@@ -525,5 +562,28 @@ def run_packaged_worker() -> int | None:
 
 
 if __name__ == "__main__":
-    worker_result = run_packaged_worker()
-    raise SystemExit(main() if worker_result is None else worker_result)
+    try:
+        worker_result = run_packaged_worker()
+    except Exception:
+        traceback.print_exc()
+        for stream in (sys.stdout, sys.stderr):
+            try:
+                stream and stream.flush()
+            except OSError:
+                pass
+        if is_frozen():
+            # CUDA/native worker pools can outlive Python shutdown in a
+            # windowed PyInstaller child. This process is a dedicated worker,
+            # so exit after its diagnostics have been flushed.
+            os._exit(1)
+        raise
+    if worker_result is None:
+        raise SystemExit(main())
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream and stream.flush()
+        except OSError:
+            pass
+    if is_frozen():
+        os._exit(worker_result)
+    raise SystemExit(worker_result)

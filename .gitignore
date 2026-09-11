@@ -1,5 +1,6 @@
 .DS_Store
 .venv/
+.cuda-build/
 __pycache__/
 *.py[cod]
 360-images/

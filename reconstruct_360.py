@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pycolmap
 
-from runtime_support import is_frozen, worker_command
+from runtime_support import is_frozen, run_relayed, worker_command
 
 
 PROJECT_DIR = Path(__file__).resolve().parent
@@ -83,6 +83,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--images", type=Path, default=DEFAULT_INPUT)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--compute", choices=("auto", "cuda", "cpu"), default="auto")
+    parser.add_argument("--gpu-index", default="0")
     parser.add_argument(
         "--matcher", choices=("sequential", "exhaustive"), default="sequential"
     )
@@ -137,6 +139,10 @@ def main() -> int:
         "incremental",
         "--pano_render_type",
         args.render_type,
+        "--compute",
+        args.compute,
+        "--gpu-index",
+        args.gpu_index,
         ],
     )
 
@@ -149,7 +155,7 @@ def main() -> int:
         return 0
 
     output.mkdir(parents=True)
-    subprocess.run(command, check=True)
+    run_relayed(command)
     brush_dir = prepare_brush_dataset(output)
     _, model = choose_best_model(brush_dir / "sparse")
     print("\nReconstruction complete.")

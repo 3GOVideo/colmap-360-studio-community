@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import locale
 import shutil
 import subprocess
 import sys
@@ -85,3 +86,28 @@ def worker_command(worker: str, script: Path, arguments: list[str]) -> list[str]
     if is_frozen():
         return [sys.executable, worker, *arguments]
     return [sys.executable, str(script), *arguments]
+
+
+def run_relayed(command: list[str], cwd: Path | None = None) -> None:
+    """Run a child with an explicit pipe and relay output to this worker.
+
+    Packaged Windows GUI processes do not provide a reliably inheritable CRT
+    stdout descriptor to grandchildren. Giving every child a fresh Win32 pipe
+    avoids ``OSError: [Errno 22] Invalid argument`` in nested workers.
+    """
+    process = subprocess.Popen(
+        command,
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding=locale.getpreferredencoding(False),
+        errors="replace",
+        bufsize=1,
+    )
+    assert process.stdout is not None
+    for line in process.stdout:
+        print(line.rstrip("\r\n"), flush=True)
+    code = process.wait()
+    if code:
+        raise subprocess.CalledProcessError(code, command)

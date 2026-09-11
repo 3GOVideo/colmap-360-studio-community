@@ -1,0 +1,7 @@
+pycolmap @ https://github.com/lyehe/build_gpu_colmap/releases/download/v4.1.1-1/pycolmap-4.1.1%2Bcuda-cp312-cp312-win_amd64.whl#sha256=216a4f04e2e4096a6b629e9583b67c9051552fa6f6371c23152e1782f294c529
+numpy>=2.0
+pillow>=11.0
+opencv-python-headless>=4.10
+scipy>=1.14
+tqdm>=4.66
+imageio-ffmpeg>=0.6
