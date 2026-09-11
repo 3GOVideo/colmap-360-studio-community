@@ -8,6 +8,7 @@
 
 | Platform / Plataforma | Installer / Instalador |
 | --- | --- |
+| Windows 10/11 (x64), NVIDIA CUDA 12.8 — v0.3.0 | **[Download NVIDIA portable `.zip` / Descargar NVIDIA `.zip`](https://github.com/3GOVideo/colmap-360-studio-community/releases/download/v0.3.0-nvidia/COLMAP-360-Studio-Community-Windows-NVIDIA-CUDA12-v0.3.0.zip)** |
 | Windows 10/11 (x64) — v0.2.1 | **[Download portable `.zip` / Descargar `.zip`](https://github.com/3GOVideo/colmap-360-studio-community/releases/download/v0.2.1/COLMAP-360-Studio-Community-Windows-v0.2.1.zip)** |
 | macOS (Apple Silicon) — v0.2.0 | **[Download `.dmg` / Descargar `.dmg`](https://github.com/3GOVideo/colmap-360-studio-community/releases/download/v0.2.0/COLMAP-360-Studio-Community-macOS.dmg)** |
 
