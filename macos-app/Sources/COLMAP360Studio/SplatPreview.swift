@@ -14,6 +14,21 @@ struct SplatPreview: NSViewRepresentable {
         let configuration = WKWebViewConfiguration()
         configuration.setURLSchemeHandler(context.coordinator.schemeHandler, forURLScheme: "colmap360")
         configuration.preferences.isElementFullscreenEnabled = true
+        configuration.userContentController.addUserScript(WKUserScript(
+            source: """
+            window.addEventListener('keydown', function (event) {
+                const navigationKeys = new Set([
+                    'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE',
+                    'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+                    'Space', 'ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight',
+                    'Digit1', 'Digit2', 'Digit3', 'KeyF', 'KeyG', 'KeyH', 'KeyR', 'KeyV'
+                ]);
+                if (navigationKeys.has(event.code)) event.preventDefault();
+            }, true);
+            """,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        ))
 
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.navigationDelegate = context.coordinator

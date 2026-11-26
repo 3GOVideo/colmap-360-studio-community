@@ -6,6 +6,7 @@ struct ContentView: View {
     @State private var isDropTargeted = false
     @State private var showSetupConfirmation = false
     @State private var selectedTab = 0
+    @State private var trimVideoURL: URL?
 
     var body: some View {
         ZStack {
@@ -27,6 +28,22 @@ struct ContentView: View {
             Button("Revisar e instalar") { pipeline.prepareMac() }
         } message: {
             Text("La app revisará e instalará Python, FFmpeg, COLMAP y el motor oficial de Brush. Brush quedará registrado para las próximas sesiones. El avance aparecerá en el registro.")
+        }
+        .sheet(isPresented: Binding(
+            get: { trimVideoURL != nil },
+            set: { if !$0 { trimVideoURL = nil } }
+        )) {
+            if let trimVideoURL {
+                VideoTrimEditor(
+                    url: trimVideoURL,
+                    duration: pipeline.videoDuration,
+                    fps: pipeline.fps,
+                    initialRange: pipeline.videoTrim,
+                    isPanorama: pipeline.videoType == .panorama
+                ) { range in
+                    pipeline.applyVideoTrim(range, for: trimVideoURL)
+                }
+            }
         }
         .tint(.blue)
     }
@@ -105,20 +122,46 @@ struct ContentView: View {
                              : "Introduce un valor entre 1.000 y 30.000.")
                             .font(.caption)
                             .foregroundStyle(pipeline.brushStepsAreValid ? Color.secondary : Color.red)
+                        Toggle(
+                            "Guardar PLY intermedios cada 500 pasos",
+                            isOn: $pipeline.brushExportsIntermediatePLYs
+                        )
+                        .toggleStyle(.checkbox)
+                        .font(.callout)
+                        .disabled(pipeline.isBrushRunning)
+                        Text(pipeline.brushExportsIntermediatePLYs
+                             ? "Conserva snapshots para comparar el avance; SuperSplat actualiza la vista inicial, al 50% y al 100%."
+                             : "Ahorra espacio: Brush guardará únicamente el PLY final y SuperSplat lo mostrará al terminar.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                         HStack {
                             metricValue(pipeline.brushStep.formatted(), label: "Paso")
                             metricValue(pipeline.brushSplatCount?.formatted() ?? "—", label: "Splats")
                         }
-                        ProgressView(value: pipeline.brushProgress) {
-                            HStack {
-                                Text("\(pipeline.brushStep.formatted()) / \(pipeline.brushTotalSteps.formatted()) pasos")
-                                Spacer()
-                                Text("\(pipeline.brushProgressPercent)%")
-                                    .fontWeight(.semibold)
+                        if pipeline.isBrushRunning && pipeline.brushStep == 0 {
+                            ProgressView {
+                                HStack {
+                                    Text("Brush está trabajando")
+                                    Spacer()
+                                    Text(pipeline.brushElapsedTimeText)
+                                        .fontWeight(.semibold)
+                                }
+                                .font(.caption.monospacedDigit())
                             }
-                            .font(.caption.monospacedDigit())
+                            .progressViewStyle(.linear)
+                            .tint(.cyan)
+                        } else {
+                            ProgressView(value: pipeline.brushProgress) {
+                                HStack {
+                                    Text("\(pipeline.brushStep.formatted()) / \(pipeline.brushTotalSteps.formatted()) pasos")
+                                    Spacer()
+                                    Text("\(pipeline.brushProgressPercent)%")
+                                        .fontWeight(.semibold)
+                                }
+                                .font(.caption.monospacedDigit())
+                            }
                         }
-                        Text("Brush admite hasta 10 millones de splats. SuperSplat muestra una vista inicial, otra al 50% y el resultado al 100%.")
+                        Text("Brush admite hasta 10 millones de splats.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         HStack {
@@ -159,21 +202,7 @@ struct ContentView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                         if pipeline.latestSplatURL == nil {
-                            VStack(spacing: 10) {
-                                Image(systemName: "view.3d")
-                                    .font(.system(size: 38))
-                                    .foregroundStyle(.secondary)
-                                Text("Esperando el primer snapshot")
-                                    .font(.headline)
-                                Text("SuperSplat mostrará el primer Gaussian Splat disponible.")
-                                    .font(.callout)
-                                    .foregroundStyle(.secondary)
-                                Text("La vista volverá a actualizarse al 50% y al finalizar el entrenamiento.")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                    .multilineTextAlignment(.center)
-                                    .frame(maxWidth: 420)
-                            }
+                            trainingPlaceholder
                             .padding(24)
                             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
                         } else {
@@ -200,13 +229,6 @@ struct ContentView: View {
                         Text("Arrastra para orbitar · rueda para acercar")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        Button {
-                            pipeline.openLatestSplatInBrush()
-                        } label: {
-                            Label("Abrir en Brush", systemImage: "cube.transparent")
-                        }
-                        .buttonStyle(.borderless)
-                        .disabled(pipeline.latestSplatURL == nil || pipeline.isBrushRunning)
                         Button("Abrir PLY…") { pipeline.chooseSplatPreview() }
                             .buttonStyle(.borderless)
                             .disabled(pipeline.isBrushRunning)
@@ -246,6 +268,61 @@ struct ContentView: View {
         .padding(16)
     }
 
+    @ViewBuilder
+    private var trainingPlaceholder: some View {
+        if pipeline.isBrushRunning {
+            VStack(spacing: 14) {
+                ProgressView()
+                    .controlSize(.large)
+                    .tint(.cyan)
+                Text("Entrenando Gaussian Splat")
+                    .font(.title3.bold())
+                    .foregroundStyle(.cyan)
+                Text("Brush está optimizando la escena 3D")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                ProgressView()
+                    .progressViewStyle(.linear)
+                    .tint(.cyan)
+                    .frame(width: 360)
+                Label(
+                    "Tiempo transcurrido: \(pipeline.brushElapsedTimeText)",
+                    systemImage: "clock"
+                )
+                .font(.callout.monospacedDigit().weight(.medium))
+                Text(pipeline.brushExportsIntermediatePLYs
+                     ? "La primera vista aparecerá cuando Brush exporte el snapshot inicial."
+                     : "El resultado aparecerá cuando Brush exporte el PLY final.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: 480)
+        } else {
+            VStack(spacing: 10) {
+                Image(systemName: "view.3d")
+                    .font(.system(size: 38))
+                    .foregroundStyle(.secondary)
+                Text(pipeline.brushExportsIntermediatePLYs
+                     ? "Esperando el primer snapshot"
+                     : "Esperando el resultado final")
+                    .font(.headline)
+                Text(pipeline.brushExportsIntermediatePLYs
+                     ? "SuperSplat mostrará el primer Gaussian Splat disponible."
+                     : "SuperSplat mostrará el Gaussian Splat cuando termine el entrenamiento.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Text(pipeline.brushExportsIntermediatePLYs
+                     ? "La vista volverá a actualizarse al 50% y al finalizar el entrenamiento."
+                     : "Activa los PLY intermedios si quieres comparar el avance durante el proceso.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 420)
+            }
+        }
+    }
+
     private func pathSummary(title: String, path: String) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
@@ -281,8 +358,15 @@ struct ContentView: View {
                 .frame(width: 48, height: 48)
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text("COLMAP 360 Studio")
-                    .font(.title2.weight(.bold))
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text("COLMAP 360 Studio")
+                        .font(.title2.weight(.bold))
+                    if let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String {
+                        Text("v\(version)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 Text("De video a dataset para Gaussian Splat")
                     .foregroundStyle(.secondary)
             }
@@ -320,11 +404,34 @@ struct ContentView: View {
                     Text(pipeline.videoSummary)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
+                    if let range = pipeline.videoTrim {
+                        Text("Tramo: \(VideoTrimEditor.timecode(range.lowerBound))–\(VideoTrimEditor.timecode(range.upperBound))")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.blue)
+                    }
                 }
                 Spacer()
-                Button("Seleccionar video…") { pipeline.chooseVideo() }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(pipeline.isRunning)
+                if let videoURL = pipeline.videoURL {
+                    HStack(spacing: 10) {
+                        Button("Cambiar video…") { pipeline.chooseVideo() }
+                            .buttonStyle(.bordered)
+                            .disabled(pipeline.isRunning)
+                        Button {
+                            trimVideoURL = videoURL
+                        } label: {
+                            Label(
+                                pipeline.videoTrim == nil ? "Recortar video…" : "Editar recorte…",
+                                systemImage: "scissors"
+                            )
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(pipeline.videoDuration <= 0 || pipeline.isRunning || pipeline.isBrushRunning)
+                    }
+                } else {
+                    Button("Seleccionar video…") { pipeline.chooseVideo() }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(pipeline.isRunning)
+                }
             }
             .padding(6)
             .contentShape(Rectangle())
@@ -430,7 +537,9 @@ struct ContentView: View {
                         label: "Duración promedio"
                     )
                 } else {
-                    Text("Selecciona un video para calcular fotogramas y duración.")
+                    Text(pipeline.isTrimLongEnough
+                         ? "Selecciona un video para calcular fotogramas y duración."
+                         : "El tramo es demasiado corto para los FPS elegidos. Amplía el recorte o aumenta los FPS.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                     Spacer()
@@ -470,7 +579,7 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(pipeline.outputURL.path)
                         .lineLimit(1).truncationMode(.middle)
-                    Text("La app crea una carpeta nueva y nunca sobrescribe resultados anteriores.")
+                    Text("Cada trabajo se guarda en una subcarpeta nueva. Al seleccionar un video se sugiere su carpeta.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()

@@ -100,6 +100,7 @@ enum BrushTrainingState {
 
 private struct JobConfiguration: Equatable {
     let videoPath: String
+    let trimRange: ClosedRange<Double>?
     let outputPath: String
     let videoType: VideoType
     let fps: Int
@@ -109,13 +110,15 @@ private struct JobConfiguration: Equatable {
 
 @MainActor
 final class PipelineController: NSObject, ObservableObject {
+    private static let defaultOutputURL = FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask)[0]
     private static let brushExecutablePathKey = "BrushExecutablePath"
     private static let brushTotalStepsKey = "BrushTotalSteps"
+    private static let brushIntermediateExportsKey = "BrushIntermediateExports"
     static let brushMinimumSteps = 1_000
     static let brushMaximumSteps = 30_000
 
     @Published var videoURL: URL?
-    @Published var outputURL: URL = FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask).first!
+    @Published private(set) var outputURL = defaultOutputURL
     @Published var videoType: VideoType = .panorama
     @Published var fps = 2
     @Published var reconstruct = true
@@ -132,6 +135,7 @@ final class PipelineController: NSObject, ObservableObject {
     @Published var logText = ""
     @Published var videoSummary = "MOV o MP4 · el modo 360 espera una imagen 2:1"
     @Published private(set) var videoDuration = 0.0
+    @Published private(set) var videoTrim: ClosedRange<Double>?
     @Published private(set) var videoWidth = 0
     @Published private(set) var videoHeight = 0
     @Published var dependencyState: DependencyState = .unknown
@@ -148,6 +152,17 @@ final class PipelineController: NSObject, ObservableObject {
     @Published var previewPointCount = 0
     @Published var previewMilestoneLabel = ""
     @Published var isBrushRunning = false
+    @Published var brushElapsedSeconds = 0
+    @Published var brushExportsIntermediatePLYs: Bool = UserDefaults.standard.bool(
+        forKey: PipelineController.brushIntermediateExportsKey
+    ) {
+        didSet {
+            UserDefaults.standard.set(
+                brushExportsIntermediatePLYs,
+                forKey: Self.brushIntermediateExportsKey
+            )
+        }
+    }
 
     @Published var brushTotalSteps: Int = {
         let saved = UserDefaults.standard.integer(forKey: PipelineController.brushTotalStepsKey)
@@ -160,7 +175,7 @@ final class PipelineController: NSObject, ObservableObject {
             }
         }
     }
-    let brushExportEvery = 500
+    private let brushIntermediateExportInterval = 500
 
     private var process: Process?
     private var logHandle: FileHandle?
@@ -172,13 +187,14 @@ final class PipelineController: NSObject, ObservableObject {
     private var brushBufferedOutput = ""
     private var brushMonitor: Timer?
     private var brushActivityToken: NSObjectProtocol?
-    private var brushViewerProcess: Process?
+    private var brushTrainingStartedAt: Date?
     private var shownPreviewMilestones = Set<Int>()
 
     private var currentConfiguration: JobConfiguration? {
         guard let videoURL else { return nil }
         return JobConfiguration(
             videoPath: videoURL.path,
+            trimRange: videoTrim,
             outputPath: outputURL.path,
             videoType: videoType,
             fps: fps,
@@ -192,7 +208,8 @@ final class PipelineController: NSObject, ObservableObject {
     }
 
     var canStart: Bool {
-        currentConfiguration != nil && !isRunning && !isBrushRunning && !hasCompletedCurrentConfiguration
+        currentConfiguration != nil && !isRunning && !isBrushRunning
+            && !hasCompletedCurrentConfiguration && isTrimLongEnough
     }
 
     var canStartBrush: Bool {
@@ -207,6 +224,15 @@ final class PipelineController: NSObject, ObservableObject {
         min(100, max(0, Int((brushProgress * 100).rounded())))
     }
 
+    var brushElapsedTimeText: String {
+        let hours = brushElapsedSeconds / 3_600
+        let minutes = (brushElapsedSeconds % 3_600) / 60
+        let seconds = brushElapsedSeconds % 60
+        return hours > 0
+            ? String(format: "%d:%02d:%02d", hours, minutes, seconds)
+            : String(format: "%02d:%02d", minutes, seconds)
+    }
+
     var resolvedBrushDatasetURL: URL? {
         if let brushDatasetURL, isBrushDataset(brushDatasetURL) { return brushDatasetURL }
         guard let lastOutputURL else { return nil }
@@ -218,9 +244,18 @@ final class PipelineController: NSObject, ObservableObject {
         return candidates.first(where: isBrushDataset)
     }
 
+    var selectedVideoDuration: Double {
+        guard let videoTrim else { return videoDuration }
+        return videoTrim.upperBound - videoTrim.lowerBound
+    }
+
+    var isTrimLongEnough: Bool {
+        videoTrim == nil || selectedVideoDuration + 1e-9 >= 1 / Double(fps)
+    }
+
     var estimatedFrameCount: Int {
-        guard videoDuration > 0 else { return 0 }
-        return max(1, Int((videoDuration * Double(fps)).rounded()))
+        guard selectedVideoDuration > 0, isTrimLongEnough else { return 0 }
+        return max(1, Int((selectedVideoDuration * Double(fps)).rounded()))
     }
 
     var estimatedVirtualViewCount: Int {
@@ -232,7 +267,7 @@ final class PipelineController: NSObject, ObservableObject {
         let seconds: Double
         if !reconstruct {
             let megapixels = Double(videoWidth * videoHeight) / 1_000_000
-            seconds = max(5, videoDuration * max(0.08, megapixels / 30))
+            seconds = max(5, selectedVideoDuration * max(0.08, megapixels / 30))
         } else if videoType == .panorama {
             // Calibrated against the proven 239 × 12 view, 100-minute run.
             let referencePixels = 7680.0 * 3840.0
@@ -270,6 +305,7 @@ final class PipelineController: NSObject, ObservableObject {
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.canCreateDirectories = true
+        panel.directoryURL = outputURL
         if panel.runModal() == .OK, let url = panel.url { outputURL = url }
     }
 
@@ -322,41 +358,6 @@ final class PipelineController: NSObject, ObservableObject {
         }
     }
 
-    func openLatestSplatInBrush() {
-        guard !isBrushRunning else { return }
-        guard let brush = brushExecutableURL ?? findBrushExecutable() else {
-            brushState = .unavailable
-            appendBrushLog("Brush no está disponible para abrir el resultado.")
-            return
-        }
-        guard let splat = latestSplatURL, FileManager.default.fileExists(atPath: splat.path) else {
-            appendBrushLog("Todavía no hay un Gaussian Splat entrenado para abrir.")
-            return
-        }
-
-        let task = Process()
-        task.executableURL = brush
-        task.arguments = [splat.path]
-        var environment = ProcessInfo.processInfo.environment
-        environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-        task.environment = environment
-        task.terminationHandler = { [weak self] finished in
-            Task { @MainActor in
-                self?.brushViewerProcess = nil
-                if finished.terminationStatus != 0 {
-                    self?.appendBrushLog("El visor de Brush terminó con código \(finished.terminationStatus).")
-                }
-            }
-        }
-        do {
-            try task.run()
-            brushViewerProcess = task
-            appendBrushLog("Abriendo en Brush: \(splat.lastPathComponent)")
-        } catch {
-            appendBrushLog("No fue posible abrir Brush: \(error.localizedDescription)")
-        }
-    }
-
     func startBrushTraining() {
         guard brushStepsAreValid else {
             appendBrushLog("El número de pasos debe estar entre 1.000 y 30.000.")
@@ -397,12 +398,20 @@ final class PipelineController: NSObject, ObservableObject {
         brushStep = 0
         brushSplatCount = nil
         brushProgress = 0
+        brushElapsedSeconds = 0
         brushBufferedOutput = ""
         brushState = .running
         isBrushRunning = true
+        let exportEvery = brushExportsIntermediatePLYs
+            ? brushIntermediateExportInterval
+            : brushTotalSteps
         appendBrushLog("\n— Entrenamiento Brush estándar —")
         appendBrushLog("Dataset: \(dataset.path)")
-        appendBrushLog("\(brushTotalSteps.formatted()) pasos · máximo estándar de 10 millones de splats · snapshot cada 500 pasos")
+        appendBrushLog(
+            brushExportsIntermediatePLYs
+                ? "\(brushTotalSteps.formatted()) pasos · máximo de 10 millones de splats · PLY cada \(brushIntermediateExportInterval) pasos"
+                : "\(brushTotalSteps.formatted()) pasos · máximo de 10 millones de splats · solo se guardará el PLY final"
+        )
 
         let task = Process()
         let pipe = Pipe()
@@ -414,7 +423,7 @@ final class PipelineController: NSObject, ObservableObject {
             "--dataset", dataset.path,
             "--output", output.path,
             "--total-steps", String(brushTotalSteps),
-            "--export-every", String(brushExportEvery),
+            "--export-every", String(exportEvery),
         ]
         task.currentDirectoryURL = pipelineDirectory()
         var environment = ProcessInfo.processInfo.environment
@@ -448,6 +457,8 @@ final class PipelineController: NSObject, ObservableObject {
                 self.brushLogHandle = nil
                 self.brushMonitor?.invalidate()
                 self.brushMonitor = nil
+                self.updateBrushElapsedTime()
+                self.brushTrainingStartedAt = nil
                 self.isBrushRunning = false
                 self.brushProcess = nil
                 if let token = self.brushActivityToken {
@@ -474,10 +485,12 @@ final class PipelineController: NSObject, ObservableObject {
         }
         do {
             try task.run()
+            brushTrainingStartedAt = Date()
             startBrushMonitor()
         } catch {
             isBrushRunning = false
             brushProcess = nil
+            brushTrainingStartedAt = nil
             brushState = .failed
             if let token = brushActivityToken {
                 ProcessInfo.processInfo.endActivity(token)
@@ -508,13 +521,22 @@ final class PipelineController: NSObject, ObservableObject {
     }
 
     private func setVideo(_ url: URL) {
+        guard !isRunning else { return }
         guard ["mov", "mp4"].contains(url.pathExtension.lowercased()) else {
             appendLog("Selecciona un archivo .mov o .mp4.")
             return
         }
         videoURL = url
+        let sourceFolder = url.deletingLastPathComponent()
+        if FileManager.default.isWritableFile(atPath: sourceFolder.path) {
+            outputURL = sourceFolder
+        } else {
+            outputURL = Self.defaultOutputURL
+            appendLog("No se puede escribir en la carpeta del video. Se usará la carpeta de películas; puedes cambiarla.")
+        }
         lastOutputURL = nil
         videoDuration = 0
+        videoTrim = nil
         videoWidth = 0
         videoHeight = 0
         inspectVideo(url)
@@ -537,7 +559,8 @@ final class PipelineController: NSObject, ObservableObject {
             })
             let width = Int(values["width"] ?? "") ?? 0
             let height = Int(values["height"] ?? "") ?? 0
-            let duration = Double(values["duration"] ?? "") ?? 0
+            let reportedDuration = Double(values["duration"] ?? "") ?? 0
+            let duration = reportedDuration.isFinite ? max(0, reportedDuration) : 0
             videoWidth = width
             videoHeight = height
             videoDuration = duration
@@ -551,17 +574,25 @@ final class PipelineController: NSObject, ObservableObject {
         }
     }
 
+    func applyVideoTrim(_ range: ClosedRange<Double>?, for url: URL) {
+        guard videoURL == url, !isRunning, !isBrushRunning, videoTrim != range else { return }
+        videoTrim = range
+    }
+
     func start() {
-        guard let videoURL else { return }
+        guard let videoURL, canStart else { return }
         guard dependencyState == .ready else {
             appendLog("Primero usa ‘Preparar Mac’ para revisar las dependencias.")
             return
         }
-        let arguments = [
+        var arguments = [
             "--video", videoURL.path, "--type", videoType.rawValue,
             "--fps", String(fps), "--output", outputURL.path,
             "--camera-model", cameraModel.rawValue,
         ] + (reconstruct ? [] : ["--frames-only"])
+        if let videoTrim {
+            arguments += ["--trim-start", String(videoTrim.lowerBound), "--trim-end", String(videoTrim.upperBound)]
+        }
         progress = 0.01
         lastOutputURL = nil
         runPythonScript("process_video.py", arguments: arguments, action: "Procesando video")
@@ -607,6 +638,7 @@ final class PipelineController: NSObject, ObservableObject {
 
     private func runExecutable(_ executable: String, arguments: [String], action: String, isSetup: Bool = false) {
         guard !isRunning else { return }
+        let jobConfiguration = currentConfiguration
         let task = Process()
         let pipe = Pipe()
         task.executableURL = URL(fileURLWithPath: executable)
@@ -658,7 +690,7 @@ final class PipelineController: NSObject, ObservableObject {
                     self.progress = 1
                     self.statusText = isSetup ? "Mac preparado" : "Proceso terminado"
                     if !isSetup {
-                        self.completedConfiguration = self.currentConfiguration
+                        self.completedConfiguration = jobConfiguration
                         self.discoverBrushDataset()
                         self.notifyCompletion()
                     }
@@ -754,10 +786,19 @@ final class PipelineController: NSObject, ObservableObject {
 
     private func startBrushMonitor() {
         brushMonitor?.invalidate()
-        brushMonitor = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refreshLatestSplat() }
+        brushMonitor = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.updateBrushElapsedTime()
+                self?.refreshLatestSplat()
+            }
         }
+        updateBrushElapsedTime()
         refreshLatestSplat()
+    }
+
+    private func updateBrushElapsedTime() {
+        guard let brushTrainingStartedAt else { return }
+        brushElapsedSeconds = max(0, Int(Date().timeIntervalSince(brushTrainingStartedAt)))
     }
 
     private func refreshLatestSplat(forceFinal: Bool = false) {

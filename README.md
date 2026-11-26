@@ -125,8 +125,13 @@ The app requires macOS 13 or newer. Build the local application with:
 Then open:
 
 ```text
-dist/COLMAP 360 Studio.app
+dist/COLMAP 360 Studio v<version>.app
 ```
+
+For each new macOS release, update `CFBundleShortVersionString` in
+`macos-app/Info.plist` and increment `CFBundleVersion`. Use a patch version
+for fixes (e.g. `1.1.1`) and a minor version for new features (e.g. `1.2.0`).
+The build script names the app using the version in the plist.
 
 On first use, select **Prepare Mac**. The app checks Homebrew, Python 3.12,
 FFmpeg, COLMAP, PyCOLMAP, and OpenCV, and installs missing supported components.
@@ -417,8 +422,13 @@ Se necesita macOS 13 o superior. Para construir la aplicación localmente:
 Después abra:
 
 ```text
-dist/COLMAP 360 Studio.app
+dist/COLMAP 360 Studio v<versión>.app
 ```
+
+Para cada nueva versión de macOS, actualice `CFBundleShortVersionString`
+en `macos-app/Info.plist` e incremente `CFBundleVersion`. Use una versión
+de parche para correcciones (por ejemplo, `1.1.1`) y una versión menor para
+nuevas funciones (por ejemplo, `1.2.0`). El script lee el plist para nombrar la app.
 
 En el primer uso pulse **Preparar Mac**. La aplicación revisa Homebrew, Python
 3.12, FFmpeg, COLMAP, PyCOLMAP y OpenCV, e instala los componentes compatibles

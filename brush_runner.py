@@ -68,7 +68,7 @@ def main() -> int:
     ]
     print(f"::brush-output {output}", flush=True)
     print(f"::brush-total-steps {args.total_steps}", flush=True)
-    print("Configuración Brush: valores estándar; snapshots del visor cada "
+    print("Configuración Brush: valores estándar; exportación PLY cada "
           f"{args.export_every} pasos.", flush=True)
     print("$ " + subprocess.list2cmdline(command), flush=True)
     if args.dry_run:
