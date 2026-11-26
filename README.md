@@ -4,16 +4,17 @@
 
 ## Download / Descargar
 
-**[Latest release / Última versión](https://github.com/3GOVideo/colmap-360-studio-community/releases/latest)**
+**[Release history / Historial de versiones](https://github.com/3GOVideo/colmap-360-studio-community/releases)**
 
-| Platform / Plataforma | Installer / Instalador |
+| Platform / Plataforma | Download / Descarga |
 | --- | --- |
-| Windows 10/11 (x64) — v0.2.1 | **[Download portable `.zip` / Descargar `.zip`](https://github.com/3GOVideo/colmap-360-studio-community/releases/download/v0.2.1/COLMAP-360-Studio-Community-Windows-v0.2.1.zip)** |
-| macOS (Apple Silicon) — v0.2.0 | **[Download `.dmg` / Descargar `.dmg`](https://github.com/3GOVideo/colmap-360-studio-community/releases/download/v0.2.0/COLMAP-360-Studio-Community-macOS.dmg)** |
+| Native macOS / macOS nativa (Apple Silicon, 13+) — **v1.1.0** | **[Download app ZIP / Descargar app ZIP](https://github.com/3GOVideo/colmap-360-studio-community/releases/download/v1.1.0/COLMAP-360-Studio-macOS-arm64-v1.1.0.zip)** |
+| Windows 10/11 Community (x64) — v0.2.1 | **[Portable ZIP / ZIP portátil](https://github.com/3GOVideo/colmap-360-studio-community/releases/download/v0.2.1/COLMAP-360-Studio-Community-Windows-v0.2.1.zip)** |
+| macOS Community (Apple Silicon) — v0.2.0 | **[Community DMG / DMG Community](https://github.com/3GOVideo/colmap-360-studio-community/releases/download/v0.2.0/COLMAP-360-Studio-Community-macOS.dmg)** |
 
-> This repository and its releases are private. Sign in with a GitHub account
-> that has access. / Este repositorio y sus releases son privados. Inicia sesión
-> con una cuenta de GitHub autorizada.
+For the native macOS app, unzip the archive, open the app, and choose
+**Prepare Mac** to set up dependencies. / Para la app nativa de macOS, descomprime
+el ZIP, abre la aplicación y pulsa **Preparar Mac** para configurar las dependencias.
 
 ## Development and community / Desarrollo y comunidad
 
@@ -24,6 +25,22 @@ community.
 Desarrollado por **[@sajornad](https://github.com/sajornad)** como un aporte de
 **[3GOVideo](https://3govideo.com)** para la comunidad de Gaussian Splatting y
 fotogrametría.
+
+## Integrated Brush Studio / Brush Studio integrado
+
+In the native macOS app, **Brush Studio** runs the independent Brush CLI with
+1,000–30,000 configurable training steps. Training shows elapsed time and
+reports progress when step counts are available. The embedded **SuperSplat**
+viewer displays the final Gaussian PLY. Enable intermediate exports to save a
+PLY every 500 steps and preview the initial, halfway, and final results.
+**Prepare Mac** can download Brush separately on Apple Silicon.
+
+En la app nativa para macOS, **Brush Studio** ejecuta el CLI independiente de
+Brush con entre 1.000 y 30.000 pasos configurables. Muestra el tiempo transcurrido
+y el progreso cuando hay conteos de pasos disponibles. El visor integrado
+**SuperSplat** muestra el Gaussian PLY final. Activa las exportaciones
+intermedias para guardar un PLY cada 500 pasos y ver los resultados inicial,
+intermedio y final. **Preparar Mac** puede descargar Brush por separado en Apple Silicon.
 
 Turn equirectangular 360° frames into a COLMAP reconstruction that can be
 opened directly in [Brush](https://github.com/ArthurBrussee/brush) for Gaussian
@@ -91,6 +108,10 @@ duration immediately.
 - **Flat video:** OpenCV measures sharpness and visual features, then COLMAP
   estimates camera poses and the sparse 3D model.
 - **Frames only:** creates the image sequence without starting reconstruction.
+- **Trim video:** preview the clip and set its start and end before extracting
+  frames. The source stays intact and the estimates use the selected duration.
+- **Results folder:** defaults to a new job subfolder beside the source video.
+  Use **Change…** to choose another location.
 - **Brush output:** full runs finish with a standard `brush-dataset` folder.
 
 The app requires macOS 13 or newer. Build the local application with:
@@ -102,8 +123,13 @@ The app requires macOS 13 or newer. Build the local application with:
 Then open:
 
 ```text
-dist/COLMAP 360 Studio.app
+dist/COLMAP 360 Studio v<version>.app
 ```
+
+For each new macOS release, update `CFBundleShortVersionString` in
+`macos-app/Info.plist` and increment `CFBundleVersion`. Use a patch version
+for fixes (e.g. `1.1.1`) and a minor version for new features (e.g. `1.2.0`).
+The build script names the app using the version in the plist.
 
 On first use, select **Prepare Mac**. The app checks Homebrew, Python 3.12,
 FFmpeg, COLMAP, PyCOLMAP, and OpenCV, and installs missing supported components.
@@ -382,6 +408,10 @@ virtuales 360 y la duración promedio del procesamiento.
 - **Video plano:** OpenCV mide la nitidez y las características visuales;
   después COLMAP calcula las poses de cámara y el modelo 3D disperso.
 - **Solo fotogramas:** genera la secuencia de imágenes sin iniciar COLMAP.
+- **Recortar video:** previsualiza el clip y ajusta su inicio y fin antes de
+  extraer fotogramas. El original queda intacto y los estimados usan el tramo elegido.
+- **Carpeta de resultados:** por defecto, crea una subcarpeta de trabajo junto
+  al video de origen. Usa **Cambiar…** para elegir otra ubicación.
 - **Salida para Brush:** una ejecución completa termina con una carpeta
   estándar llamada `brush-dataset`.
 
@@ -394,8 +424,13 @@ Se necesita macOS 13 o superior. Para construir la aplicación localmente:
 Después abra:
 
 ```text
-dist/COLMAP 360 Studio.app
+dist/COLMAP 360 Studio v<versión>.app
 ```
+
+Para cada nueva versión de macOS, actualice `CFBundleShortVersionString`
+en `macos-app/Info.plist` e incremente `CFBundleVersion`. Use una versión
+de parche para correcciones (por ejemplo, `1.1.1`) y una versión menor para
+nuevas funciones (por ejemplo, `1.2.0`). El script lee el plist para nombrar la app.
 
 En el primer uso pulse **Preparar Mac**. La aplicación revisa Homebrew, Python
 3.12, FFmpeg, COLMAP, PyCOLMAP y OpenCV, e instala los componentes compatibles

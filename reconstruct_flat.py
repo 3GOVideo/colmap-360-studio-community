@@ -12,6 +12,12 @@ import pycolmap
 
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp"}
+CAMERA_MODELS = (
+    "SIMPLE_PINHOLE", "PINHOLE", "SIMPLE_RADIAL", "SIMPLE_RADIAL_FISHEYE",
+    "RADIAL", "RADIAL_FISHEYE", "OPENCV", "OPENCV_FISHEYE", "FULL_OPENCV",
+    "FOV", "THIN_PRISM_FISHEYE", "RAD_TAN_THIN_PRISM_FISHEYE",
+    "SIMPLE_DIVISION", "DIVISION", "SIMPLE_FISHEYE", "FISHEYE", "EUCM",
+)
 
 
 def images_in(folder: Path) -> list[Path]:
@@ -49,6 +55,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--images", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--matcher", choices=("sequential", "exhaustive"), default="sequential")
+    parser.add_argument("--camera-model", choices=CAMERA_MODELS, default="OPENCV")
     return parser.parse_args()
 
 
@@ -74,7 +81,13 @@ def main() -> int:
     database = output / "database.db"
     sparse = output / "sparse"
     sparse.mkdir()
-    pycolmap.extract_features(database, images_dir, camera_mode=pycolmap.CameraMode.SINGLE)
+    print(f"Modelo de cámara COLMAP: {args.camera_model}", flush=True)
+    pycolmap.extract_features(
+        database,
+        images_dir,
+        camera_mode=pycolmap.CameraMode.SINGLE,
+        reader_options=pycolmap.ImageReaderOptions(camera_model=args.camera_model),
+    )
     if args.matcher == "sequential":
         pycolmap.match_sequential(database)
     else:
@@ -95,7 +108,8 @@ def main() -> int:
         f"Registered images: {best.num_reg_images()}\n"
         f"Sparse points: {best.num_points3D()}\n"
         f"OpenCV average sharpness: {blur:.1f}\n"
-        f"OpenCV average detected features: {features}\n",
+        f"OpenCV average detected features: {features}\n"
+        f"COLMAP camera model: {args.camera_model}\n",
         encoding="utf-8",
     )
     print(f"Imágenes registradas: {best.num_reg_images()}", flush=True)

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -12,6 +13,12 @@ from runtime_support import ffmpeg_executable, is_frozen, probe_video, worker_co
 
 
 PROJECT_DIR = Path(__file__).resolve().parent
+CAMERA_MODELS = (
+    "SIMPLE_PINHOLE", "PINHOLE", "SIMPLE_RADIAL", "SIMPLE_RADIAL_FISHEYE",
+    "RADIAL", "RADIAL_FISHEYE", "OPENCV", "OPENCV_FISHEYE", "FULL_OPENCV",
+    "FOV", "THIN_PRISM_FISHEYE", "RAD_TAN_THIN_PRISM_FISHEYE",
+    "SIMPLE_DIVISION", "DIVISION", "SIMPLE_FISHEYE", "FISHEYE", "EUCM",
+)
 
 
 def emit_progress(value: float, message: str) -> None:
@@ -28,7 +35,13 @@ def unique_job_dir(output: Path, stem: str, kind: str, fps: int) -> Path:
     if not base.exists():
         return base
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    return output / f"{stem}-{kind}-{fps}fps-{timestamp}"
+    dated = output / f"{base.name}-{timestamp}"
+    candidate = dated
+    index = 2
+    while candidate.exists():
+        candidate = output / f"{dated.name}-{index}"
+        index += 1
+    return candidate
 
 
 def parse_args() -> argparse.Namespace:
@@ -37,6 +50,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--type", required=True, choices=("360", "flat"))
     parser.add_argument("--fps", required=True, type=int, choices=(1, 2, 5, 10))
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--camera-model", choices=CAMERA_MODELS, default="OPENCV")
+    parser.add_argument("--trim-start", type=float, help="Inicio del tramo en segundos.")
+    parser.add_argument("--trim-end", type=float, help="Fin del tramo en segundos.")
     parser.add_argument("--frames-only", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
@@ -48,8 +64,6 @@ def main() -> int:
     output = args.output.expanduser().resolve()
     if not video.is_file() or video.suffix.lower() not in {".mov", ".mp4"}:
         raise SystemExit(f"Selecciona un video MOV o MP4 válido: {video}")
-    if not output.is_dir():
-        output.mkdir(parents=True, exist_ok=True)
 
     info = probe_video(video)
     print(
@@ -62,6 +76,20 @@ def main() -> int:
             "El modo 360 necesita un panorama equirectangular 2:1. "
             f"Este video mide {info['width']}×{info['height']}."
         )
+
+    seek = []
+    filters = f"fps={args.fps}"
+    if args.trim_start is not None or args.trim_end is not None:
+        duration = info["duration"]
+        start = args.trim_start if args.trim_start is not None else 0.0
+        end = args.trim_end if args.trim_end is not None else duration
+        if not (math.isfinite(start) and math.isfinite(end) and 0 <= start < end <= duration):
+            raise SystemExit("El recorte debe tener un inicio y fin válidos dentro del video.")
+        if end - start + 1e-9 < 1 / args.fps:
+            raise SystemExit(f"El tramo es demasiado corto para extraer un fotograma a {args.fps} FPS.")
+        seek = ["-ss", f"{start:.9f}"]
+        filters = f"trim=end={end - start:.9f},setpts=PTS-STARTPTS,fps={args.fps}:eof_action=pass"
+        print(f"Tramo seleccionado: {start:.3f}–{end:.3f} s", flush=True)
 
     job = unique_job_dir(output, video.stem, args.type, args.fps)
     frames = job / "frames"
@@ -76,8 +104,8 @@ def main() -> int:
     frames.mkdir(parents=True)
     emit_progress(0.08, f"Extrayendo fotogramas a {args.fps} FPS")
     run([
-        ffmpeg_executable(), "-hide_banner", "-nostdin", "-i", str(video),
-        "-vf", f"fps={args.fps}", "-q:v", "2", str(frames / "frame_%06d.jpg"),
+        ffmpeg_executable(), "-hide_banner", "-nostdin", *seek, "-i", str(video),
+        "-map", "0:v:0", "-vf", filters, "-q:v", "2", str(frames / "frame_%06d.jpg"),
     ])
     frame_count = len(list(frames.glob("*.jpg")))
     if frame_count == 0:
@@ -107,7 +135,11 @@ def main() -> int:
         command = worker_command(
             "--reconstruct-flat-worker",
             program,
-            ["--images", str(frames), "--output", str(reconstruction)],
+            [
+                "--images", str(frames),
+                "--output", str(reconstruction),
+                "--camera-model", args.camera_model,
+            ],
         )
     if not is_frozen() and not program.is_file():
         raise RuntimeError(f"Falta el motor de reconstrucción: {program.name}")
