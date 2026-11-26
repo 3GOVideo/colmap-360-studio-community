@@ -46,6 +46,7 @@ cp "$APP_SOURCE/Assets/app-icon.png" "$RESOURCES/AppIcon.png"
 cp "$SUPERSPLAT_SOURCE/index.html" "$SUPERSPLAT_RESOURCES/index.html"
 cp "$SUPERSPLAT_SOURCE/index.css" "$SUPERSPLAT_RESOURCES/index.css"
 cp "$SUPERSPLAT_SOURCE/index.js" "$SUPERSPLAT_RESOURCES/index.js"
+cp "$SUPERSPLAT_SOURCE/../LICENSE" "$SUPERSPLAT_RESOURCES/LICENSE"
 cp "$SCRIPT_DIR/supersplat-viewer/settings.json" "$SUPERSPLAT_RESOURCES/settings.json"
 chmod +x "$CONTENTS/MacOS/COLMAP360Studio" "$PIPELINE"/*.py "$PIPELINE"/*.sh
 
